@@ -3,7 +3,7 @@ import rtmidi
 import colorsys
 import time
 import numpy as np
-#import librosa
+from Animation import Animation
 
 #import board
 #import neopixel
@@ -36,11 +36,10 @@ def note_to_hue_pct(note_name):
 
 # Note colours are based on the Scriabin colour map, but modernized using
 # HSV colour space. The colours are based on the circle of fifths, starting at 
-# C (red) and going clockwise.
-def note_to_rgb(note_name, velocity):
-  brightness = max(0.0, min(SATURATION_VELOCITY, velocity) / SATURATION_VELOCITY)
+# the first note in CIRCLE_OF_FIFTHS_NOTE_NAMES and going clockwise.
+def note_to_rgb(note_name, intensity):
   hue = note_to_hue_pct(note_name)
-  return colorsys.hsv_to_rgb(hue, 1.0, brightness)
+  return colorsys.hsv_to_rgb(hue, 1.0, intensity)
 
 def note_data_from_midi(midi_note_name):
   note_name = midi_note_name[:-1]
@@ -65,47 +64,10 @@ midiin = rtmidi.RtMidiIn()
 active_notes = {} 
 animations = {}
 
-def lerpstep(y0, y1, x):
-  assert 0.0 <= x <= 1.0
-  return y0 * (1.0 - x) + y1 * x
 
-def smoothstep(y0, y1, x):
-  v = max(0.0, min(1.0, ((x - y0) / (y1 - y0))))
-  return v * v * (3.0 - 2.0 * v)
-
-def sqrtstep(y0, y1, x):
-  assert 0.0 <= x <= 1.0
-  sqrt_x = np.sqrt(x)
-  return lerpstep(y0, y1, sqrt_x)
 
 DEFAULT_ANIM_FADE_IN_TIME_S  = 0.05
 DEFAULT_ANIM_FADE_OUT_TIME_S = 0.01
-class Animation:
-  def __init__(self, init_value, final_value, duration_s, interpolation_fn):
-    assert duration_s > 0.0
-    self.reset(init_value, final_value, duration_s, interpolation_fn)
-    
-  def reset(self, init_value, final_value, duration_s=None, interpolation_fn=None):
-    self.init_value = init_value
-    self.final_value = final_value
-    self.curr_value = init_value
-    self._t = 0.0
-    if duration_s is not None:
-      self.duration = duration_s
-    if interpolation_fn is not None:
-      self.interpolation_fn = interpolation_fn
-  
-  def update(self, dt):
-    assert dt >= 0.0
-    self._t += dt
-    p = 1.0
-    if self.duration > 0:
-      p = max(0.0, min(1.0, self._t / self.duration))
-    self.curr_value = self.interpolation_fn(self.init_value, self.final_value, p)
-    return self.curr_value
-  
-  def is_done(self):
-    return self._t >= self.duration
 
 def update_colour(dt):
   total_colour = np.array([0.,0.,0.])
@@ -121,13 +83,7 @@ def update_colour(dt):
   #pixels.fill((int(total_colour[0]*255), int(total_colour[1]*255), int(total_colour[2]*255)))
   
 
-def print_message(midi):
-  if midi.isNoteOn():
-    print('ON: ', midi.getMidiNoteName(midi.getNoteNumber()), midi.getVelocity())
-  elif midi.isNoteOff():
-    print('OFF:', midi.getMidiNoteName(midi.getNoteNumber()))
-  elif midi.isController():
-    print('CONTROLLER', midi.getControllerNumber(), midi.getControllerValue())
+
 
 def update_active_notes(midi):
   global active_notes
@@ -195,6 +151,7 @@ def update_active_notes(midi):
 
 if __name__ == '__main__':
   MIDI_PORT_CHECK_TIME_S = 5.0
+  MIDI_GET_MSG_TIMEOUT_MS = 250
   def find_midi_ports(blocking=True):
     ports = []
     while (len(ports) == 0):
@@ -220,13 +177,16 @@ if __name__ == '__main__':
         current_time = time.time()
         dt = current_time - last_time
         last_time = current_time
-        m = midiin.getMessage(1) # timeout in ms
+        m = midiin.getMessage(MIDI_GET_MSG_TIMEOUT_MS)
         if m:
           update_active_notes(m)
-          #print_message(m)
+          #print_midi_message(m)
         update_colour(dt)
 
-        # Every so often we should check to see if the midi ports have changed
+        # Every so often we should check to see if the midi ports have changed,
+        # Unfortunately, the RtMidi library doesn't provide a way to check if the
+        # port list has changed or if the device has disconnected, 
+        # so we have to do it manually.
         if current_time - last_port_check_time >= MIDI_PORT_CHECK_TIME_S:
           curr_midi_ports = find_midi_ports(blocking=False)
           if len(curr_midi_ports) == 0:

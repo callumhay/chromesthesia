@@ -5,16 +5,19 @@ from threading import Thread
 import pyaudio
 import numpy as np
 import librosa
+from EventMonitor import EventMonitor
 
 from ItemStore import ItemStore
+from NoteUtils import note_data_from_midi_name
 
 def round_up_to_even(f):
   return int(math.ceil(f / 2.) * 2)
 
 class MicNoteDetector(Thread):
 
-  def __init__(self):
+  def __init__(self, event_monitor: EventMonitor):
     super(MicNoteDetector, self).__init__()
+    self.event_monitor = event_monitor
     self.audio = None
     self.stream = None
     self.mic_idx = -1
@@ -22,14 +25,21 @@ class MicNoteDetector(Thread):
     # Emptied and gathered in the main thread (see the run() method).
     self.audio_thread_store = ItemStore()
 
-  def _init_audio(self):
-    if self.audio is not None:
-      self.audio.terminate()
-    self.audio = pyaudio.PyAudio()
+  def _close_stream(self):
     if self.stream is not None:
       self.stream.stop_stream()
       self.stream.close()
+      self.event_monitor.on_event(
+        EventMonitor.EVENT_ISSUER_MIC, 
+        EventMonitor.EVENT_TYPE_DISCONNECTED, 
+      )
     self.stream = None
+
+  def _init_audio(self):
+    self._close_stream()
+    if self.audio is not None:
+      self.audio.terminate()
+    self.audio = pyaudio.PyAudio()
     self.mic_idx  = -1
 
   def _find_mic(self):
@@ -88,7 +98,14 @@ class MicNoteDetector(Thread):
     )
 
     self.stream.start_stream()
+    if self.stream.is_active():
+      self.event_monitor.on_event(
+        EventMonitor.EVENT_ISSUER_MIC, 
+        EventMonitor.EVENT_TYPE_CONNECTED, 
+      )
+
     curr_audio_accum = []
+    active_notes = {}
     while self.stream.is_active():
       #print("Current queue len: ", len(audio_thread_q.queue))
       curr_audio_accum += self.audio_thread_store.getAll()
@@ -106,15 +123,53 @@ class MicNoteDetector(Thread):
         fmin=librosa.note_to_hz('C2'),
         fmax=librosa.note_to_hz('C7')
       )
-      possible_note_inds = voiced_probs > 0.5
-      if np.any(possible_note_inds) > 0:
-        print(librosa.hz_to_note(f0[possible_note_inds], unicode=False))
+
+      masked_note_inds =  (voiced_probs > 0.5) & voiced_flag
+      if np.any(masked_note_inds) > 0:
+        unique_notes = np.unique(librosa.hz_to_note(f0[masked_note_inds], unicode=False))
+
+        # All notes that aren't in the unique_notes list are off now
+        notes_to_remove = []
+        for midi_note_name in active_notes:
+          if midi_note_name not in unique_notes:
+            self.event_monitor.on_event(
+              EventMonitor.EVENT_ISSUER_MIC, 
+              EventMonitor.EVENT_TYPE_NOTE_OFF, 
+              active_notes[midi_note_name]
+            )
+            notes_to_remove.append(midi_note_name)
+        for midi_note_name in notes_to_remove:
+          del active_notes[midi_note_name]
+        
+        for midi_note_name in unique_notes:
+          if midi_note_name not in active_notes:
+            note_name, note_octave = note_data_from_midi_name(midi_note_name)
+            note_data = {
+              'note_name': note_name,
+              'note_octave': note_octave,
+            }
+            self.event_monitor.on_event(
+              EventMonitor.EVENT_ISSUER_MIC, 
+              EventMonitor.EVENT_TYPE_NOTE_ON, 
+              note_data
+            )
+            active_notes[midi_note_name] = note_data
+      else:
+        # All notes are off now
+        for midi_note_name in active_notes:
+          self.event_monitor.on_event(
+            EventMonitor.EVENT_ISSUER_MIC, 
+            EventMonitor.EVENT_TYPE_NOTE_OFF, 
+            active_notes[midi_note_name]
+          )
+        active_notes = {}
+
+        # TODO: Callback for note on and off
+        #print(librosa.hz_to_note(f0[possible_note_inds], unicode=False))
 
       curr_audio_accum = curr_audio_accum[-math.floor(0.5*FFT_WINDOW_SIZE):]
 
-    self.stream.stop_stream()
-    self.stream.close()
-    self.stream = None
+    self._close_stream()
     self.mic_idx = -1
   
   # Main thread - runs forever, constantly trying to find a microphone and
