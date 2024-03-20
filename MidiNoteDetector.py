@@ -1,7 +1,8 @@
 
 from threading import Thread
-import rtmidi
+import mido
 import time
+import librosa
 
 from EventMonitor import EventMonitor
 from NoteUtils import NoteData, note_data_from_midi_name
@@ -11,18 +12,19 @@ class MidiNoteDetector(Thread):
   def __init__(self, event_monitor: EventMonitor):
     super(MidiNoteDetector, self).__init__()
     self.event_monitor = event_monitor
-    self.midiin = None
+    self.midi_port = None
     self.active_notes = {}
-    self._init_midi()
 
-  def _init_midi(self):
-    if self.midiin is not None:
-      del self.midiin
-      self.event_monitor.on_event(
-        EventMonitor.EVENT_ISSUER_MIDI, 
-        EventMonitor.EVENT_TYPE_DISCONNECTED, 
-      )
-    self.midiin = rtmidi.RtMidiIn()
+  def _clean_up_midi_port(self, disconnected=False):
+    if self.midi_port is not None:
+      self.midi_port.close()
+      del self.midi_port
+      if disconnected:
+        self.event_monitor.on_event(
+          EventMonitor.EVENT_ISSUER_MIDI, 
+          EventMonitor.EVENT_TYPE_DISCONNECTED, 
+        )
+    self.midi_port = None
 
   @staticmethod
   def _print_midi_message(midi):
@@ -32,30 +34,20 @@ class MidiNoteDetector(Thread):
       print('OFF:', midi.getMidiNoteName(midi.getNoteNumber()))
     elif midi.isController():
       print('CONTROLLER', midi.getControllerNumber(), midi.getControllerValue())
-
-  def _find_midi_ports(self, blocking=True):
-    ports = []
-    while (len(ports) == 0):
-      ports = range(self.midiin.getPortCount())
-      if len(ports) == 0 and blocking:
-        time.sleep(1)
-      else:
-        break
-    return ports
   
   def _update_active_notes(self, midi):
     MIN_VELOCITY = 5.0
     SATURATION_VELOCITY = 32.0
 
-    if midi.isNoteOn():
-      midi_note_name = midi.getMidiNoteName(midi.getNoteNumber())
-      if midi.getVelocity() >= MIN_VELOCITY:
+    if midi.type == 'note_on':
+      midi_note_name = librosa.midi_to_note(midi.note, octave=True, unicode=False)
+      if midi.velocity >= MIN_VELOCITY:
         note_name, note_octave = note_data_from_midi_name(midi_note_name)
         self.active_notes[midi_note_name] = NoteData(
           issuers={EventMonitor.EVENT_ISSUER_MIDI},
           note_name=note_name,
           note_octave=note_octave,
-          intensity=max(0.0, min(1.0, midi.getVelocity() / SATURATION_VELOCITY))
+          intensity=max(0.0, min(1.0, midi.velocity / SATURATION_VELOCITY))
         )
         self.event_monitor.on_event(
           EventMonitor.EVENT_ISSUER_MIDI, 
@@ -71,8 +63,8 @@ class MidiNoteDetector(Thread):
           )
           self.active_notes.pop(midi_note_name, None)  
 
-    elif midi.isNoteOff():
-      midi_note_name = midi.getMidiNoteName(midi.getNoteNumber())
+    elif midi.type == 'note_off':
+      midi_note_name = librosa.midi_to_note(midi.note, octave=True, unicode=False)
       if midi_note_name in self.active_notes:
         self.event_monitor.on_event(
           EventMonitor.EVENT_ISSUER_MIDI, 
@@ -84,44 +76,48 @@ class MidiNoteDetector(Thread):
   def run(self):
     MIDI_PORT_CHECK_TIME_S = 5.0
     MIDI_GET_MSG_TIMEOUT_MS = 250
+    MAX_SLEEP_TIME_S = 16
 
     midi_ports = []
+    find_midi_wait_time_s = 1
     while True:
+      midi_ports = mido.get_input_names()
       if len(midi_ports) == 0:
-        midi_ports = self._find_midi_ports()
+        print("No MIDI ports found. Sleeping for a bit then retrying...")
+        time.sleep(find_midi_wait_time_s)
+        find_midi_wait_time_s = min(2*find_midi_wait_time_s, MAX_SLEEP_TIME_S)
+        continue
       else:
-        assert len(midi_ports) > 0
-        open_port = midi_ports[0]
-        self.midiin.openPort(open_port)
-        print('OPENED MIDI PORT:', self.midiin.getPortName(open_port))
-        self.event_monitor.on_event(
-          EventMonitor.EVENT_ISSUER_MIDI, 
-          EventMonitor.EVENT_TYPE_CONNECTED, 
-        )
+        find_midi_wait_time_s = 1
 
-        last_time = time.time()
-        last_port_check_time = last_time
-        self.active_notes = {}
+      port_name = midi_ports[0]
+      self.midi_port = mido.open_input(port_name)
+      print('Opened MIDI port:', port_name)
+      self.event_monitor.on_event(
+        EventMonitor.EVENT_ISSUER_MIDI, 
+        EventMonitor.EVENT_TYPE_CONNECTED, 
+      )
 
-        while True:
-          current_time = time.time()
-          dt = current_time - last_time
-          last_time = current_time
-          m = self.midiin.getMessage(MIDI_GET_MSG_TIMEOUT_MS)
-          if m:
-            self._update_active_notes(m)
-            #self._print_midi_message(m)
+      last_time = time.time()
+      last_port_check_time = last_time
+      self.active_notes = {}
 
-          # Every so often we should check to see if the midi ports have changed,
-          # Unfortunately, the RtMidi library doesn't provide a way to check if the
-          # port list has changed or if the device has disconnected, 
-          # so we have to do it manually.
-          if current_time - last_port_check_time >= MIDI_PORT_CHECK_TIME_S:
-            curr_midi_ports = self._find_midi_ports(blocking=False)
-            if len(curr_midi_ports) == 0:
-              self._init_midi()
-              midi_ports = []
-              print('NO MIDI PORTS FOUND, RETRYING...')
-              break
-            else:
-              midi_ports = curr_midi_ports
+      while True:
+        current_time = time.time()
+        for msg in self.midi_port.iter_pending():
+          self._update_active_notes(msg)
+          #self._print_midi_message(m)
+
+        # Every so often we should check to see if the midi ports have changed,
+        # Unfortunately, the RtMidi library doesn't provide a way to check if the
+        # port list has changed or if the device has disconnected, 
+        # so we have to do it manually.
+        if current_time - last_port_check_time >= MIDI_PORT_CHECK_TIME_S:
+          curr_midi_ports = mido.get_input_names()
+          if len(curr_midi_ports) == 0:
+            self._clean_up_midi_port(disconnected=True)
+            midi_ports = []
+            print('No MIDI ports found, retrying...')
+            break
+          else:
+            midi_ports = curr_midi_ports

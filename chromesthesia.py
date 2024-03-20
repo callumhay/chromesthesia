@@ -1,7 +1,7 @@
 import time
 import math
 import colorsys
-from typing import Dict, Set
+from typing import Dict
 import numpy as np
 
 from EventMonitor import EventMonitor
@@ -41,7 +41,7 @@ def note_to_rgb(note_name, intensity):
   hue = note_to_hue_pct(note_name)
   return np.array(colorsys.hsv_to_rgb(hue, 1.0, intensity), dtype=np.float32)
 
-prev_total_colour = np.array([math.nan,math.nan,math.nan])
+prev_total_colour = np.array([math.nan, math.nan, math.nan])
 def update_colour(dt):
   global active_animations, prev_total_colour
   animated_notes = set()
@@ -106,7 +106,6 @@ def on_disconnect_remove_notes(issuer: str):
     del active_notes[k]
     note_off_animation(k)
 
-
 def remove_active_note(midi_note_name: str, issuer: str):
   global active_notes
   note_data = active_notes.get(midi_note_name, None)
@@ -146,7 +145,7 @@ def on_midi_note_on(note_data: NoteData):
     active_note.issuers.add(EventMonitor.EVENT_ISSUER_MIDI)
 
 def on_midi_note_off(note_data: NoteData):
-  print("MIDI note off: ", note_data)
+  #print("MIDI note off: ", note_data)
   midi_note_name = midi_name_from_note_data(note_data)
   # If the mic is still detecting the note then we shouldn't fade out
   # until the mic stops detecting the note.
@@ -158,12 +157,12 @@ def on_midi_note_off(note_data: NoteData):
 
 def on_mic_connected():
   global is_mic_connected
-  print("MIC connected")
+  print("MIC connected.")
   is_mic_connected = True
 
 def on_mic_disconnected():
   global is_mic_connected
-  print("MIC disconnected")
+  print("MIC disconnected.")
   is_mic_connected = False
   # Remove mic-only active notes
   on_disconnect_remove_notes(EventMonitor.EVENT_ISSUER_MIC)
@@ -253,7 +252,7 @@ if __name__ == '__main__':
 
     # A very minor sleep seems to prevent thread starvation... 
     # TODO: If you find a better solution out there then replace this.
-    time.sleep(0.0001)
+    time.sleep(0.001)
 
   #mic_note_detector.join()
   #midi_note_detector.join()

@@ -181,7 +181,7 @@ class MicNoteDetector(Thread):
       try:
         self.mic_idx = self._find_mic()
         if self.mic_idx == -1:
-          print("Microphone not found. Sleeping for a bit and trying again...")
+          print("Microphone not found. Sleeping for a bit then retrying...")
           time.sleep(find_mic_wait_time_s)
           find_mic_wait_time_s = min(2*find_mic_wait_time_s, MAX_SLEEP_TIME_S)
           continue
