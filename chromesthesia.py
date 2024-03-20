@@ -55,9 +55,12 @@ def update_colour(dt):
       animated_notes.add(midi_note_name)
   
   np.clip(total_colour, 0.0, 1.0, out=total_colour)
-  if not np.array_equal(prev_total_colour, total_colour):
-    print(", ".join(animated_notes), total_colour)
-  
+
+  # DEBUG ONLY
+  #if not np.array_equal(prev_total_colour, total_colour):
+  #  print(", ".join(animated_notes), total_colour)
+  # END DEBUG
+
   prev_total_colour = total_colour
 
   # TODO: Set the LEDs to the total_colour

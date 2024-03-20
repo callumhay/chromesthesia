@@ -75,7 +75,6 @@ class MidiNoteDetector(Thread):
 
   def run(self):
     MIDI_PORT_CHECK_TIME_S = 5.0
-    MIDI_GET_MSG_TIMEOUT_MS = 250
     MAX_SLEEP_TIME_S = 16
 
     midi_ports = []
