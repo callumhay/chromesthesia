@@ -4,6 +4,11 @@ class EventMonitor(object):
   
   EVENT_ISSUER_MIC = "MIC"
   EVENT_ISSUER_MIDI = "MIDI"
+  # Lower value means higher priority
+  ISSUER_PRIORITY = {
+    EVENT_ISSUER_MIDI: 0,
+    EVENT_ISSUER_MIC: 1,
+  }
 
   EVENT_TYPE_CONNECTED = "CONNECTED"
   EVENT_TYPE_DISCONNECTED = "DISCONNECTED"
@@ -26,6 +31,9 @@ class EventMonitor(object):
 
   # Called from the main thread
   def process_events(self):
+    # Events are sorted by issuer and then by event type
+    self.event_queue.sort(sort_fn=lambda event: self.ISSUER_PRIORITY[event[0]])
+
     events = self.event_queue.getAll(blocking=False)
     for event in events:
       issuer, event_type, event_data = event

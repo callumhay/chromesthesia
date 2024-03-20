@@ -8,7 +8,7 @@ import librosa
 from EventMonitor import EventMonitor
 
 from ItemStore import ItemStore
-from NoteUtils import note_data_from_midi_name
+from NoteUtils import NoteData, note_data_from_midi_name
 
 def round_up_to_even(f):
   return int(math.ceil(f / 2.) * 2)
@@ -106,6 +106,7 @@ class MicNoteDetector(Thread):
 
     curr_audio_accum = []
     active_notes = {}
+    #avg_rms = 0.0 # TODO: Use RMS to augment the intensity of the notes?
     while self.stream.is_active():
       #print("Current queue len: ", len(audio_thread_q.queue))
       curr_audio_accum += self.audio_thread_store.getAll()
@@ -123,6 +124,7 @@ class MicNoteDetector(Thread):
         fmin=librosa.note_to_hz('C2'),
         fmax=librosa.note_to_hz('C7')
       )
+      #rms = np.mean(librosa.feature.rms(y=audio_data))
 
       masked_note_inds =  (voiced_probs > 0.5) & voiced_flag
       if np.any(masked_note_inds) > 0:
@@ -144,10 +146,12 @@ class MicNoteDetector(Thread):
         for midi_note_name in unique_notes:
           if midi_note_name not in active_notes:
             note_name, note_octave = note_data_from_midi_name(midi_note_name)
-            note_data = {
-              'note_name': note_name,
-              'note_octave': note_octave,
-            }
+            note_data = NoteData(
+              issuers={EventMonitor.EVENT_ISSUER_MIC},
+              note_name=note_name,
+              note_octave=note_octave,
+              intensity=1.0,
+            )
             self.event_monitor.on_event(
               EventMonitor.EVENT_ISSUER_MIC, 
               EventMonitor.EVENT_TYPE_NOTE_ON, 
@@ -163,11 +167,6 @@ class MicNoteDetector(Thread):
             active_notes[midi_note_name]
           )
         active_notes = {}
-
-        # TODO: Callback for note on and off
-        #print(librosa.hz_to_note(f0[possible_note_inds], unicode=False))
-
-      curr_audio_accum = curr_audio_accum[-math.floor(0.5*FFT_WINDOW_SIZE):]
 
     self._close_stream()
     self.mic_idx = -1

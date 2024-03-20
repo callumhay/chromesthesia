@@ -4,7 +4,7 @@ import rtmidi
 import time
 
 from EventMonitor import EventMonitor
-from NoteUtils import note_data_from_midi_name, standardize_note_name
+from NoteUtils import NoteData, note_data_from_midi_name
 
 class MidiNoteDetector(Thread):
 
@@ -51,12 +51,12 @@ class MidiNoteDetector(Thread):
       midi_note_name = midi.getMidiNoteName(midi.getNoteNumber())
       if midi.getVelocity() >= MIN_VELOCITY:
         note_name, note_octave = note_data_from_midi_name(midi_note_name)
-        note_name = standardize_note_name(note_name)
-        self.active_notes[midi_note_name] = {
-          'note_name': note_name,
-          'note_octave': note_octave,
-          'intensity': max(0.0, min(1.0, midi.getVelocity() / SATURATION_VELOCITY))
-        }
+        self.active_notes[midi_note_name] = NoteData(
+          issuers={EventMonitor.EVENT_ISSUER_MIDI},
+          note_name=note_name,
+          note_octave=note_octave,
+          intensity=max(0.0, min(1.0, midi.getVelocity() / SATURATION_VELOCITY))
+        )
         self.event_monitor.on_event(
           EventMonitor.EVENT_ISSUER_MIDI, 
           EventMonitor.EVENT_TYPE_NOTE_ON, 
