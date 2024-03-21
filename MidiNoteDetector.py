@@ -77,46 +77,50 @@ class MidiNoteDetector(Process):
     MIDI_PORT_CHECK_TIME_S = 5.0
     MAX_SLEEP_TIME_S = 16
 
-    midi_ports = []
-    find_midi_wait_time_s = 1
-    while True:
-      midi_ports = mido.get_input_names()
-      if len(midi_ports) == 0:
-        print("No MIDI ports found. Sleeping for a bit then retrying...")
-        time.sleep(find_midi_wait_time_s)
-        find_midi_wait_time_s = min(2*find_midi_wait_time_s, MAX_SLEEP_TIME_S)
-        continue
-      else:
-        find_midi_wait_time_s = 1
-
-      port_name = midi_ports[0]
-      self.midi_port = mido.open_input(port_name)
-      print('Opened MIDI port:', port_name)
-      self.event_monitor.on_event(
-        EventMonitor.EVENT_ISSUER_MIDI, 
-        EventMonitor.EVENT_TYPE_CONNECTED, 
-      )
-
-      last_time = time.time()
-      last_port_check_time = last_time
-      self.active_notes = {}
-
+    try:
+      midi_ports = []
+      find_midi_wait_time_s = 1
       while True:
-        current_time = time.time()
-        for msg in self.midi_port.iter_pending():
-          self._update_active_notes(msg)
-          #self._print_midi_message(m)
+        midi_ports = mido.get_input_names()
+        if len(midi_ports) == 0:
+          print("No MIDI ports found. Sleeping for a bit then retrying...")
+          time.sleep(find_midi_wait_time_s)
+          find_midi_wait_time_s = min(2*find_midi_wait_time_s, MAX_SLEEP_TIME_S)
+          continue
+        else:
+          find_midi_wait_time_s = 1
 
-        # Every so often we should check to see if the midi ports have changed,
-        # Unfortunately, the RtMidi library doesn't provide a way to check if the
-        # port list has changed or if the device has disconnected, 
-        # so we have to do it manually.
-        if current_time - last_port_check_time >= MIDI_PORT_CHECK_TIME_S:
-          curr_midi_ports = mido.get_input_names()
-          if len(curr_midi_ports) == 0:
-            self._clean_up_midi_port(disconnected=True)
-            midi_ports = []
-            print('No MIDI ports found, retrying...')
-            break
-          else:
-            midi_ports = curr_midi_ports
+        port_name = midi_ports[0]
+        self.midi_port = mido.open_input(port_name)
+        print('Opened MIDI port:', port_name)
+        self.event_monitor.on_event(
+          EventMonitor.EVENT_ISSUER_MIDI, 
+          EventMonitor.EVENT_TYPE_CONNECTED, 
+        )
+
+        last_time = time.time()
+        last_port_check_time = last_time
+        self.active_notes = {}
+
+        while True:
+          current_time = time.time()
+          for msg in self.midi_port.iter_pending():
+            self._update_active_notes(msg)
+            #self._print_midi_message(m)
+
+          # Every so often we should check to see if the midi ports have changed,
+          # Unfortunately, the RtMidi library doesn't provide a way to check if the
+          # port list has changed or if the device has disconnected, 
+          # so we have to do it manually.
+          if current_time - last_port_check_time >= MIDI_PORT_CHECK_TIME_S:
+            curr_midi_ports = mido.get_input_names()
+            if len(curr_midi_ports) == 0:
+              self._clean_up_midi_port(disconnected=True)
+              midi_ports = []
+              print('No MIDI ports found, retrying...')
+              break
+            else:
+              midi_ports = curr_midi_ports
+    except KeyboardInterrupt:
+      # For Ctrl+C to work cleanly
+      print("MidiNoteDetector terminated. Exiting...")

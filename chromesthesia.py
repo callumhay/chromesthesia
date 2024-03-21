@@ -33,17 +33,21 @@ class Animator(Process):
     self.register_callbacks()
 
   def run(self):
-    last_time = time.time()
-    while True:
-      # NO BLOCKING HERE: We need animations to continue updating
-      # even if there are no events to process
-      self.event_monitor.process_events()
+    try:
+      last_time = time.time()
+      while True:
+        # NO BLOCKING HERE: We need animations to continue updating
+        # even if there are no events to process
+        self.event_monitor.process_events()
 
-      # Update the colour of the LEDs via the active animations
-      current_time = time.time()
-      dt = current_time - last_time
-      self.update_colour(dt)
-      last_time = current_time
+        # Update the colour of the LEDs via the active animations
+        current_time = time.time()
+        dt = current_time - last_time
+        self.update_colour(dt)
+        last_time = current_time
+    except KeyboardInterrupt:
+      # For Ctrl+C to work cleanly
+      print("Animator terminated. Exiting...")
 
   def update_colour(self, dt):
     animated_notes = set()
@@ -248,10 +252,16 @@ if __name__ == '__main__':
   if args.mic:
     mic_note_detector = MicNoteDetector(event_monitor)
     mic_note_detector.start()
-  animator.start()
 
-  if args.midi:
-    midi_note_detector.join()
-  if args.mic:
-    mic_note_detector.join()
-  animator.join()
+  animator.start()
+  try:
+    animator.join()
+    if args.midi:
+      midi_note_detector.terminate()
+      midi_note_detector.join()
+    if args.mic:
+      mic_note_detector.terminate()
+      mic_note_detector.join()
+  except KeyboardInterrupt:
+    # For Ctrl+C to work cleanly
+    pass
