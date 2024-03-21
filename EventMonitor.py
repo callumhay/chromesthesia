@@ -1,4 +1,5 @@
-from ItemStore import ItemStore
+
+from multiprocessing import Queue
 
 class EventMonitor(object):
   
@@ -16,7 +17,7 @@ class EventMonitor(object):
   EVENT_TYPE_NOTE_OFF = "NOTE_OFF"
 
   def __init__(self):
-    self.event_queue = ItemStore()
+    self.event_queue = Queue()
     self.callbacks = {
       self.EVENT_ISSUER_MIC: {},
       self.EVENT_ISSUER_MIDI: {},
@@ -27,14 +28,19 @@ class EventMonitor(object):
   
   # Called from the midi and mic note detectors on their respective threads
   def on_event(self, issuer, event_type, event_data=None):
-    self.event_queue.add((issuer, event_type, event_data))
+    #self.event_queue.add((issuer, event_type, event_data))
+    self.event_queue.put_nowait((issuer, event_type, event_data))
 
   # Called from the main thread
   def process_events(self):
     # Events are sorted by issuer and then by event type
-    self.event_queue.sort(sort_fn=lambda event: self.ISSUER_PRIORITY[event[0]])
+    #self.event_queue.sort(sort_fn=lambda event: self.ISSUER_PRIORITY[event[0]])
+    events = []
+    while not self.event_queue.empty():
+      events.append(self.event_queue.get())
+    events.sort(key=lambda event: self.ISSUER_PRIORITY[event[0]])
 
-    events = self.event_queue.getAll(blocking=False)
+    #events = self.event_queue.getAll(blocking=False)
     for event in events:
       issuer, event_type, event_data = event
       if issuer not in self.callbacks:

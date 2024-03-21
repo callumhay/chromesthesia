@@ -1,5 +1,5 @@
 
-from threading import Thread
+from multiprocessing import Process
 import mido
 import time
 import librosa
@@ -7,7 +7,7 @@ import librosa
 from EventMonitor import EventMonitor
 from NoteUtils import NoteData, note_data_from_midi_name
 
-class MidiNoteDetector(Thread):
+class MidiNoteDetector(Process):
 
   def __init__(self, event_monitor: EventMonitor):
     super(MidiNoteDetector, self).__init__()

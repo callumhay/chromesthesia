@@ -1,8 +1,9 @@
 import threading
+import multiprocessing
 
 class ItemStore(object):
   def __init__(self):
-    self._condition_lock = threading.Condition()
+    self._condition_lock = multiprocessing.Condition()
     self._items = []
 
   def add(self, item):

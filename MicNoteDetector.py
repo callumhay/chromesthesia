@@ -1,7 +1,7 @@
 import sys
 import math
 import time
-from threading import Thread
+from multiprocessing import Process
 import pyaudio
 import numpy as np
 import librosa
@@ -13,7 +13,7 @@ from NoteUtils import NoteData, note_data_from_midi_name
 def round_up_to_even(f):
   return int(math.ceil(f / 2.) * 2)
 
-class MicNoteDetector(Thread):
+class MicNoteDetector(Process):
 
   def __init__(self, event_monitor: EventMonitor):
     super(MicNoteDetector, self).__init__()
