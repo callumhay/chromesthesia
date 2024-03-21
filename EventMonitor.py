@@ -16,8 +16,10 @@ class EventMonitor(object):
   EVENT_TYPE_NOTE_ON = "NOTE_ON"
   EVENT_TYPE_NOTE_OFF = "NOTE_OFF"
 
+  MAX_EVENTS_PER_FRAME = 32
+
   def __init__(self):
-    self.event_queue = Queue()
+    self.event_queue = Queue(maxsize=self.MAX_EVENTS_PER_FRAME*2)
     self.callbacks = {
       self.EVENT_ISSUER_MIC: {},
       self.EVENT_ISSUER_MIDI: {},
@@ -28,15 +30,13 @@ class EventMonitor(object):
   
   # Called from the midi and mic note detectors on their respective threads
   def on_event(self, issuer, event_type, event_data=None):
-    #self.event_queue.add((issuer, event_type, event_data))
     self.event_queue.put_nowait((issuer, event_type, event_data))
 
   # Called from the main thread
   def process_events(self):
     # Events are sorted by issuer and then by event type
-    #self.event_queue.sort(sort_fn=lambda event: self.ISSUER_PRIORITY[event[0]])
     events = []
-    while not self.event_queue.empty():
+    while not self.event_queue.empty() and len(events) < self.MAX_EVENTS_PER_FRAME:
       events.append(self.event_queue.get())
     events.sort(key=lambda event: self.ISSUER_PRIORITY[event[0]])
 
