@@ -81,12 +81,12 @@ class MicNoteDetector(Process):
 
     # The FFT window should be quite small to resolve the frequencies with reasonable latency
     # 10-25 ms seems to be a good choice, anything more than 25 ms is too slow
-    PREF_FFT_WINDOW_SIZE_MS = 20
+    PREF_FFT_WINDOW_SIZE_MS = 15
 
     # Don't touch these
     FRAMES_PER_BUFFER = round_up_to_even(RATE / PREF_UPDATES_PER_SECOND)
     #DT_PER_FRAME_MS = FRAMES_PER_BUFFER / RATE * 1000 # ms
-    FFT_WINDOW_SIZE = round_up_to_even(RATE * PREF_FFT_WINDOW_SIZE_MS / 1000) # Number of samples in the FFT window
+    FFT_WINDOW_SIZE = round_up_to_even(RATE * PREF_FFT_WINDOW_SIZE_MS / 1000.0) # Number of samples in the FFT window
     #FFT_WINDOW_SIZE_MS = FFT_WINDOW_SIZE * 1000 / RATE # ms
     FFT_MAX_WINDOW_SIZE = 2 * FFT_WINDOW_SIZE # Number of samples in the maximum FFT window
 
@@ -110,7 +110,7 @@ class MicNoteDetector(Process):
     #avg_rms = 0.0 # TODO: Use RMS to augment the intensity of the notes?
     while self.stream.is_active():
       #print("Current queue len: ", len(audio_thread_q.queue))
-      curr_audio_accum += self.audio_thread_store.getAll()
+      curr_audio_accum += self.audio_thread_store.getAll(blocking=True)
       if len(curr_audio_accum) > FFT_MAX_WINDOW_SIZE:
         curr_audio_accum = curr_audio_accum[-FFT_MAX_WINDOW_SIZE:]
       elif len(curr_audio_accum) < FFT_WINDOW_SIZE:

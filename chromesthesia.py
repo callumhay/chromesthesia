@@ -21,8 +21,8 @@ class NoteColourAnimation:
 
 class Animator(Process):
   OFF_COLOUR = np.array([0.,0.,0.], dtype=np.float32)
-  DEFAULT_ANIM_FADE_IN_TIME_S  = 0.05
-  DEFAULT_ANIM_FADE_OUT_TIME_S = 0.1
+  DEFAULT_ANIM_FADE_IN_TIME_S  = 0.1
+  DEFAULT_ANIM_FADE_OUT_TIME_S = 1.0
 
   def __init__(self, event_monitor: EventMonitor, args: argparse.Namespace):
     super(Animator, self).__init__()
@@ -36,12 +36,12 @@ class Animator(Process):
       import board
       import neopixel_spi as neopixel
       self.pixels = neopixel.NeoPixel_SPI(
-        board.SPI(),
-        args.num_leds,
+        spi=board.SPI(),
+        n=args.num_leds,
         auto_write=False,
         bpp=3,
         brightness=args.brightness,
-        pixel_order=neopixel.RGB
+        pixel_order=neopixel.RGB,
       )
       self.pixels.fill((0,0,0))
       self.pixels.show()
@@ -78,6 +78,8 @@ class Animator(Process):
       print("Animator terminated. Exiting...")
 
   def update_colour(self, dt):
+    dt = min(dt, 0.1) # Cap the delta time to prevent large jumps in colour
+    
     if self.args.print_colours:
       animated_notes = set()
 
@@ -104,7 +106,7 @@ class Animator(Process):
     luminances = np.array([luminance(l) for l in colours], dtype=np.float32)
     total_luminance = np.sum(luminances)
     total_colour = np.array([0.,0.,0.], dtype=np.float32)
-    if total_luminance > 0.0:
+    if total_luminance > 0.0 and len(colours) > 0:
       # Weighted average of the colours based on luminance
       for curr_colour, curr_luminance in zip(colours, luminances):
         total_colour += np.power(curr_colour, 2.0) * curr_luminance / total_luminance
@@ -121,7 +123,7 @@ class Animator(Process):
         self.pixels.show()
       if self.args.print_colours:
         print(", ".join(animated_notes), total_colour)
-
+  
     self.prev_total_colour = total_colour
 
 
@@ -297,7 +299,7 @@ if __name__ == '__main__':
   args.add_argument("--print-colours", action="store_true", default=False, help="Print debug messages showing the RGB.")
   args.add_argument("--print-events", action="store_true", default=False, help="Print debug messages showing the events.")
   args.add_argument("--no-hw", action="store_true", default=False, help="Don't use hardware, just print debug messages.")
-  args.add_argument("--num-leds", type=int, default=720, help="Number of LEDs in the strip.")
+  args.add_argument("--num-leds", type=int, default=40, help="Number of LEDs in the strip.")
   args.add_argument("--brightness", type=float, default=1.0, help="LED brightness, must be a value in [0,1].")
   args = args.parse_args()
 
@@ -317,13 +319,14 @@ if __name__ == '__main__':
   animator.start()
   try:
     animator.join()
-    animator.terminate()
     if args.midi:
-      midi_note_detector.terminate()
       midi_note_detector.join()
     if args.mic:
-      mic_note_detector.terminate()
       mic_note_detector.join()
   except KeyboardInterrupt:
     # For Ctrl+C to work cleanly
     pass
+
+  animator.terminate()
+  mic_note_detector.terminate()
+  midi_note_detector.terminate()
