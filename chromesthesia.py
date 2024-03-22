@@ -4,6 +4,8 @@ import argparse
 from multiprocessing import Process
 from typing import Dict
 
+import board
+import neopixel_spi as neopixel 
 import numpy as np
 
 from EventMonitor import EventMonitor
@@ -14,13 +16,22 @@ from NoteUtils import NoteData, midi_name_from_note_data, note_to_rgb
 
 class Animator(Process):
   DEFAULT_ANIM_FADE_IN_TIME_S  = 0.05
-  DEFAULT_ANIM_FADE_OUT_TIME_S = 0.01
+  DEFAULT_ANIM_FADE_OUT_TIME_S = 0.1
 
   def __init__(self, event_monitor: EventMonitor, args: argparse.Namespace):
     super(Animator, self).__init__()
     self.args = args
     self.is_midi_connected = False
     self.is_mic_connected = False
+    self.pixels = neopixel.NeoPixel_SPI(
+      board.SPI(), 
+      720, 
+      auto_write=False, 
+      bpp=3, 
+      brightness=1.0, 
+      pixel_order=neopixel.RGB
+    )
+    self.pixels.fill((0,0,0))
     # Currently active notes, also tracks the set of inputs the notes came from
     # so we can smartly process note on/off events.
     self.active_notes: Dict[str, NoteData] = {}
@@ -28,7 +39,10 @@ class Animator(Process):
     # currently contributing to the total colour of the LEDs. They are mapped
     # to the midi note name that they are animating.
     self.active_animations: Dict[str, Animation] = {}
-    self.prev_total_colour = np.array([math.nan, math.nan, math.nan]) # Debug purposes only
+    # Used to track if the colour has changed
+    self.prev_total_colour = np.array(
+      [math.nan, math.nan, math.nan], dtype=np.float32
+    )
     self.event_monitor = event_monitor
     self.register_callbacks()
 
@@ -47,30 +61,34 @@ class Animator(Process):
 
   def update_colour(self, dt):
     animated_notes = set()
-    total_colour = np.array([0.,0.,0.])
+    total_colour = np.array([0.,0.,0.], dtype=np.float32)
     for midi_note_name, anim in list(self.active_animations.items()):
       total_colour += anim.update(dt)
       # If the animation is done and no longer contributes colour then we remove it
-      if anim.is_done() and np.array_equal(anim.curr_value, np.array([0.,0.,0.])):
+      if anim.is_done() and np.array_equal(anim.curr_value, np.array([0.,0.,0.], dtype=np.float32)):
         del self.active_animations[midi_note_name]
       else:
         animated_notes.add(midi_note_name)
     
     np.clip(total_colour, 0.0, 1.0, out=total_colour)
 
-    if self.args.debug:
-      if not np.array_equal(self.prev_total_colour, total_colour):
+    if not np.array_equal(self.prev_total_colour, total_colour):
+      self.pixels.fill((
+        int(total_colour[0]*255), 
+        int(total_colour[1]*255), 
+        int(total_colour[2]*255)
+      ))
+      self.pixels.show()
+      if self.args.debug:
         print(", ".join(animated_notes), total_colour)
     self.prev_total_colour = total_colour
 
-    # TODO: Set the LEDs to the total_colour
-    #pixels.fill((int(total_colour[0]*255), int(total_colour[1]*255), int(total_colour[2]*255)))
     
   def note_on_animation(self, midi_note_name: str, note_data: NoteData):
     note_colour = note_to_rgb(note_data.note_name, note_data.intensity)
     if midi_note_name not in self.active_animations:
       self.active_animations[midi_note_name] = Animation(
-        np.array([0.,0.,0.]), 
+        np.array([0.,0.,0.], dtype=np.float32), 
         note_colour,  
         Animator.DEFAULT_ANIM_FADE_IN_TIME_S,
         sqrtstep
@@ -90,7 +108,7 @@ class Animator(Process):
       note_anim = self.active_animations[midi_note_name]
       note_anim.reset(
         note_anim.curr_value,
-        np.array([0.,0.,0.]),
+        np.array([0.,0.,0.], dtype=np.float32),
         Animator.DEFAULT_ANIM_FADE_OUT_TIME_S,
         sqrtstep
       )

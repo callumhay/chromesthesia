@@ -47,7 +47,8 @@ class MicNoteDetector(Process):
     for i in range(self.audio.get_device_count()):
       device_info = self.audio.get_device_info_by_index(i)
       lc_name = device_info['name'].lower()
-      if 'built-in' in lc_name and 'microphone' in lc_name:
+      if 'built-in' in lc_name and 'microphone' in lc_name or \
+        lc_name == 'default':
         mic_idx = i
         break
     return mic_idx
@@ -70,7 +71,7 @@ class MicNoteDetector(Process):
 
     FORMAT = pyaudio.paInt16
     CHANNELS = 1
-    RATE = int(device_info['defaultSampleRate']) # Hz (samples per second of audio data)
+    RATE = 22050 #int(device_info['defaultSampleRate']) # Hz (samples per second of audio data)
 
     # Number of updates per second for gathering frames of audio from the mic
     # This number needs to be high enough to provide the FFT with enough data 
