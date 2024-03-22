@@ -30,8 +30,8 @@ class MicNoteDetector(Process):
       self.stream.stop_stream()
       self.stream.close()
       self.event_monitor.on_event(
-        EventMonitor.EVENT_ISSUER_MIC, 
-        EventMonitor.EVENT_TYPE_DISCONNECTED, 
+        EventMonitor.EVENT_ISSUER_MIC,
+        EventMonitor.EVENT_TYPE_DISCONNECTED,
       )
     self.stream = None
 
@@ -74,14 +74,14 @@ class MicNoteDetector(Process):
     RATE = 22050 #int(device_info['defaultSampleRate']) # Hz (samples per second of audio data)
 
     # Number of updates per second for gathering frames of audio from the mic
-    # This number needs to be high enough to provide the FFT with enough data 
+    # This number needs to be high enough to provide the FFT with enough data
     # to resolve the frequencies with reasonable latency
     # >= 4096 seems to be a good choice
     PREF_UPDATES_PER_SECOND = 4096
 
     # The FFT window should be quite small to resolve the frequencies with reasonable latency
-    # 10 ms seems to be a good choice, anything more than 25 ms is too slow
-    PREF_FFT_WINDOW_SIZE_MS = 10 
+    # 10-25 ms seems to be a good choice, anything more than 25 ms is too slow
+    PREF_FFT_WINDOW_SIZE_MS = 20
 
     # Don't touch these
     FRAMES_PER_BUFFER = round_up_to_even(RATE / PREF_UPDATES_PER_SECOND)
@@ -101,8 +101,8 @@ class MicNoteDetector(Process):
     self.stream.start_stream()
     if self.stream.is_active():
       self.event_monitor.on_event(
-        EventMonitor.EVENT_ISSUER_MIC, 
-        EventMonitor.EVENT_TYPE_CONNECTED, 
+        EventMonitor.EVENT_ISSUER_MIC,
+        EventMonitor.EVENT_TYPE_CONNECTED,
       )
 
     curr_audio_accum = []
@@ -115,7 +115,7 @@ class MicNoteDetector(Process):
         curr_audio_accum = curr_audio_accum[-FFT_MAX_WINDOW_SIZE:]
       elif len(curr_audio_accum) < FFT_WINDOW_SIZE:
         continue
-      
+
       audio_data = np.array(curr_audio_accum, dtype=np.float32).flatten()
       #audio_data = audio_data * np.hamming(audio_data.size)
 
@@ -127,7 +127,7 @@ class MicNoteDetector(Process):
       )
       #rms = np.mean(librosa.feature.rms(y=audio_data))
 
-      masked_note_inds =  (voiced_probs > 0.7) & voiced_flag
+      masked_note_inds =  (voiced_probs > 0.5) & voiced_flag
       if np.any(masked_note_inds) > 0:
         unique_notes = np.unique(librosa.hz_to_note(f0[masked_note_inds], unicode=False))
 
@@ -136,14 +136,14 @@ class MicNoteDetector(Process):
         for midi_note_name in active_notes:
           if midi_note_name not in unique_notes:
             self.event_monitor.on_event(
-              EventMonitor.EVENT_ISSUER_MIC, 
-              EventMonitor.EVENT_TYPE_NOTE_OFF, 
+              EventMonitor.EVENT_ISSUER_MIC,
+              EventMonitor.EVENT_TYPE_NOTE_OFF,
               active_notes[midi_note_name]
             )
             notes_to_remove.append(midi_note_name)
         for midi_note_name in notes_to_remove:
           del active_notes[midi_note_name]
-        
+
         for midi_note_name in unique_notes:
           if midi_note_name not in active_notes:
             note_name, note_octave = note_data_from_midi_name(midi_note_name)
@@ -154,8 +154,8 @@ class MicNoteDetector(Process):
               intensity=1.0,
             )
             self.event_monitor.on_event(
-              EventMonitor.EVENT_ISSUER_MIC, 
-              EventMonitor.EVENT_TYPE_NOTE_ON, 
+              EventMonitor.EVENT_ISSUER_MIC,
+              EventMonitor.EVENT_TYPE_NOTE_ON,
               note_data
             )
             active_notes[midi_note_name] = note_data
@@ -163,33 +163,35 @@ class MicNoteDetector(Process):
         # All notes are off now
         for midi_note_name in active_notes:
           self.event_monitor.on_event(
-            EventMonitor.EVENT_ISSUER_MIC, 
-            EventMonitor.EVENT_TYPE_NOTE_OFF, 
+            EventMonitor.EVENT_ISSUER_MIC,
+            EventMonitor.EVENT_TYPE_NOTE_OFF,
             active_notes[midi_note_name]
           )
         active_notes = {}
 
     self._close_stream()
     self.mic_idx = -1
-  
+
   # Main thread - runs forever, constantly trying to find a microphone and
   # start an audio stream from it for note detection.
   def run(self):
+    INIT_SLEEP_TIME_S = 1
     MAX_SLEEP_TIME_S = 16
-    find_mic_wait_time_s = 1
+    find_mic_wait_time_s = INIT_SLEEP_TIME_S
     try:
       self._init_audio()
       while True:
         try:
           self.mic_idx = self._find_mic()
           if self.mic_idx == -1:
-            print("Microphone not found. Sleeping for a bit then retrying...")
+            if find_mic_wait_time_s == INIT_SLEEP_TIME_S:
+              print("Microphone not found. Sleeping for a bit then retrying...")
             time.sleep(find_mic_wait_time_s)
             find_mic_wait_time_s = min(2*find_mic_wait_time_s, MAX_SLEEP_TIME_S)
             continue
           else:
             self._start_audio_stream()
-            find_mic_wait_time_s = 1
+            find_mic_wait_time_s = INIT_SLEEP_TIME_S
         except Exception as e:
           print("Error occurred in Mic Note Detector Thread: ", e)
           print("Reinitializing Mic Note Detector and restarting...")

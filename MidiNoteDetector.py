@@ -21,8 +21,8 @@ class MidiNoteDetector(Process):
       del self.midi_port
       if disconnected:
         self.event_monitor.on_event(
-          EventMonitor.EVENT_ISSUER_MIDI, 
-          EventMonitor.EVENT_TYPE_DISCONNECTED, 
+          EventMonitor.EVENT_ISSUER_MIDI,
+          EventMonitor.EVENT_TYPE_DISCONNECTED,
         )
     self.midi_port = None
 
@@ -34,7 +34,7 @@ class MidiNoteDetector(Process):
       print('OFF:', midi.getMidiNoteName(midi.getNoteNumber()))
     elif midi.isController():
       print('CONTROLLER', midi.getControllerNumber(), midi.getControllerValue())
-  
+
   def _update_active_notes(self, midi):
     MIN_VELOCITY = 5.0
     SATURATION_VELOCITY = 32.0
@@ -50,52 +50,54 @@ class MidiNoteDetector(Process):
           intensity=max(0.0, min(1.0, midi.velocity / SATURATION_VELOCITY))
         )
         self.event_monitor.on_event(
-          EventMonitor.EVENT_ISSUER_MIDI, 
-          EventMonitor.EVENT_TYPE_NOTE_ON, 
+          EventMonitor.EVENT_ISSUER_MIDI,
+          EventMonitor.EVENT_TYPE_NOTE_ON,
           self.active_notes[midi_note_name]
         )
       else:
         if midi_note_name in self.active_notes:
           self.event_monitor.on_event(
-            EventMonitor.EVENT_ISSUER_MIDI, 
-            EventMonitor.EVENT_TYPE_NOTE_OFF, 
+            EventMonitor.EVENT_ISSUER_MIDI,
+            EventMonitor.EVENT_TYPE_NOTE_OFF,
             self.active_notes[midi_note_name]
           )
-          self.active_notes.pop(midi_note_name, None)  
+          self.active_notes.pop(midi_note_name, None)
 
     elif midi.type == 'note_off':
       midi_note_name = librosa.midi_to_note(midi.note, octave=True, unicode=False)
       if midi_note_name in self.active_notes:
         self.event_monitor.on_event(
-          EventMonitor.EVENT_ISSUER_MIDI, 
-          EventMonitor.EVENT_TYPE_NOTE_OFF, 
+          EventMonitor.EVENT_ISSUER_MIDI,
+          EventMonitor.EVENT_TYPE_NOTE_OFF,
           self.active_notes[midi_note_name]
         )
         self.active_notes.pop(midi_note_name, None)
 
   def run(self):
     MIDI_PORT_CHECK_TIME_S = 5.0
+    INIT_SLEEP_TIME_S = 1
     MAX_SLEEP_TIME_S = 16
 
     try:
       midi_ports = []
-      find_midi_wait_time_s = 1
+      find_midi_wait_time_s = INIT_SLEEP_TIME_S
       while True:
         midi_ports = mido.get_input_names()
         if len(midi_ports) == 0:
-          print("No MIDI ports found. Sleeping for a bit then retrying...")
+          if find_midi_wait_time_s == INIT_SLEEP_TIME_S:
+            print("No MIDI ports found. Sleeping for a bit then retrying...")
           time.sleep(find_midi_wait_time_s)
           find_midi_wait_time_s = min(2*find_midi_wait_time_s, MAX_SLEEP_TIME_S)
           continue
         else:
-          find_midi_wait_time_s = 1
+          find_midi_wait_time_s = INIT_SLEEP_TIME_S
 
         port_name = midi_ports[0]
         self.midi_port = mido.open_input(port_name)
         print('Opened MIDI port:', port_name)
         self.event_monitor.on_event(
-          EventMonitor.EVENT_ISSUER_MIDI, 
-          EventMonitor.EVENT_TYPE_CONNECTED, 
+          EventMonitor.EVENT_ISSUER_MIDI,
+          EventMonitor.EVENT_TYPE_CONNECTED,
         )
 
         last_time = time.time()
@@ -110,7 +112,7 @@ class MidiNoteDetector(Process):
 
           # Every so often we should check to see if the midi ports have changed,
           # Unfortunately, the RtMidi library doesn't provide a way to check if the
-          # port list has changed or if the device has disconnected, 
+          # port list has changed or if the device has disconnected,
           # so we have to do it manually.
           if current_time - last_port_check_time >= MIDI_PORT_CHECK_TIME_S:
             curr_midi_ports = mido.get_input_names()

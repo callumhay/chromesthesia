@@ -14,16 +14,17 @@ def sqrtstep(y0, y1, x):
   sqrt_x = np.sqrt(x)
   return lerpstep(y0, y1, sqrt_x)
 
-class Animation:
-  
+# NOTE: All provided animated values must be numpy arrays.
+class Animation(object):
   def __init__(self, init_value, final_value, duration_s, interpolation_fn):
+    super(Animation, self).__init__()
     assert duration_s > 0.0
     self.reset(init_value, final_value, duration_s, interpolation_fn)
     
   def reset(self, init_value, final_value, duration_s=None, interpolation_fn=None):
     self.init_value = init_value
     self.final_value = final_value
-    self.curr_value = init_value
+    self.curr_value = np.copy(init_value)
     self._t = 0.0
     if duration_s is not None:
       self.duration = duration_s
