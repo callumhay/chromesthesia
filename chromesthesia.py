@@ -7,22 +7,23 @@ from dataclasses import dataclass
 
 import numpy as np
 
+
 from EventMonitor import EventMonitor
 from MicNoteDetector import MicNoteDetector
 from MidiNoteDetector import MidiNoteDetector
 from Animation import Animation, sqrtstep
 from NoteUtils import NoteData, midi_name_from_note_data, note_to_rgb
-from ColourUtils import neopixel_gamma, luminance
+from ColourUtils import neopixel_gamma, rgb_to_lch, lch_to_rgb
 
 @dataclass
 class NoteColourAnimation:
-  note_colour: np.ndarray
+  note_lch_colour: np.ndarray
   animation: Animation
 
 class Animator(Process):
   OFF_COLOUR = np.array([0.,0.,0.], dtype=np.float32)
   DEFAULT_ANIM_FADE_IN_TIME_S  = 0.1
-  DEFAULT_ANIM_FADE_OUT_TIME_S = 1.0
+  DEFAULT_ANIM_FADE_OUT_TIME_S = 0.5
 
   def __init__(self, event_monitor: EventMonitor, args: argparse.Namespace):
     super(Animator, self).__init__()
@@ -79,21 +80,22 @@ class Animator(Process):
 
   def update_colour(self, dt):
     dt = min(dt, 0.1) # Cap the delta time to prevent large jumps in colour
-    
+
     if self.args.print_colours:
       animated_notes = set()
 
-    colours = []
+    lch_colours = []
+    brightnesses = []
     for midi_note_name, note_colour_anim in list(self.active_animations.items()):
-      note_colour = note_colour_anim.note_colour
+      note_lch_colour = note_colour_anim.note_lch_colour
       anim = note_colour_anim.animation
 
       # Use the original note colour as the basis for blending
       # and keep track of the maximum current intensity to scale the final colour.
       curr_brightness = anim.update(dt)
       assert 0.0 <= curr_brightness <= 1.0
-      curr_colour = curr_brightness * note_colour
-      colours.append(curr_colour)
+      brightnesses.append(curr_brightness)
+      lch_colours.append(note_lch_colour)
 
       # If the animation is done and no longer contributes colour then we remove it
       if anim.is_done() and curr_brightness == 0.0:
@@ -103,14 +105,21 @@ class Animator(Process):
           animated_notes.add(midi_note_name)
 
     # https://stackoverflow.com/questions/649454/what-is-the-best-way-to-average-two-colors-that-define-a-linear-gradient
-    luminances = np.array([luminance(l) for l in colours], dtype=np.float32)
+    luminances = np.array([c[0] for c in lch_colours], dtype=np.float32)
     total_luminance = np.sum(luminances)
-    total_colour = np.array([0.,0.,0.], dtype=np.float32)
-    if total_luminance > 0.0 and len(colours) > 0:
+    total_brightness = np.sum(brightnesses)
+    total_colour = np.copy(Animator.OFF_COLOUR)
+    if total_brightness > 0.0 and len(lch_colours) > 0:
       # Weighted average of the colours based on luminance
-      for curr_colour, curr_luminance in zip(colours, luminances):
-        total_colour += np.power(curr_colour, 2.0) * curr_luminance / total_luminance
-      total_colour = np.sqrt(total_colour)
+      # We're working in LCH colour space in order to provide a more perceptually
+      # accurate blending/interpolation of colours.
+      total_lch_colour = np.array([0.,0.,0.], dtype=np.float32)
+      for lch_colour, brightness, lum in zip(lch_colours, brightnesses, luminances):
+        total_lch_colour += lch_colour * brightness * lum / total_luminance
+        #total_colour += np.power(curr_colour, 2.0) * curr_luminance / total_luminance
+      #total_colour = np.sqrt(total_colour)
+      # Convert the total LCH colour back into sRGB
+      total_colour = lch_to_rgb(total_lch_colour)
       np.clip(total_colour, 0.0, 1.0, out=total_colour)
 
     if not np.array_equal(self.prev_total_colour, total_colour):
@@ -123,15 +132,15 @@ class Animator(Process):
         self.pixels.show()
       if self.args.print_colours:
         print(", ".join(animated_notes), total_colour)
-  
+
     self.prev_total_colour = total_colour
 
 
   def note_on_animation(self, midi_note_name: str, note_data: NoteData):
-    note_colour = note_to_rgb(note_data.note_name, note_data.intensity)
     if midi_note_name not in self.active_animations:
+      rgb_note_colour = note_to_rgb(note_data.note_name, note_data.intensity)
       self.active_animations[midi_note_name] = NoteColourAnimation(
-        note_colour=note_colour,
+        note_lch_colour=rgb_to_lch(rgb_note_colour),
         animation=Animation(
           0.0,
           1.0,

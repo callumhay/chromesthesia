@@ -1,3 +1,6 @@
+import numpy as np
+from colormath.color_objects import sRGBColor, LCHuvColor
+from colormath.color_conversions import convert_color
 
 _NEOPIXEL_GAMMA_LOOKUP = [
     0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
@@ -15,20 +18,13 @@ _NEOPIXEL_GAMMA_LOOKUP = [
   115,117,119,120,122,124,126,127,129,131,133,135,137,138,140,142,
   144,146,148,150,152,154,156,158,160,162,164,167,169,171,173,175,
   177,180,182,184,186,189,191,193,196,198,200,203,205,208,210,213,
-  215,218,220,223,225,228,231,233,236,239,241,244,247,249,252,255 
+  215,218,220,223,225,228,231,233,236,239,241,244,247,249,252,255
 ]
 
 def neopixel_gamma(value: int):
   return _NEOPIXEL_GAMMA_LOOKUP[value]
 
-# Send this function a decimal sRGB gamma encoded color value
-# between 0.0 and 1.0, and it returns a linearized value.
-def srgb_to_lin(colour_channel: float):
-  if colour_channel <= 0.04045:
-    return colour_channel / 12.92
-  else:
-    return pow(((colour_channel + 0.055)/1.055), 2.4)
-  
-def luminance(rgb):
-  l_r, l_g, l_b = srgb_to_lin(rgb[0]), srgb_to_lin(rgb[1]), srgb_to_lin(rgb[2])
-  return 0.2126 * l_r + 0.7152 * l_g + 0.0722 * l_b
+def rgb_to_lch(rgb):
+  return np.array(convert_color(sRGBColor(*rgb), LCHuvColor).get_value_tuple(), dtype=np.float32)
+def lch_to_rgb(lch):
+  return np.array(convert_color(LCHuvColor(*lch), sRGBColor).get_value_tuple(), dtype=np.float32)
