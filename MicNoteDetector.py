@@ -127,7 +127,7 @@ class MicNoteDetector(Process):
       )
       #rms = np.mean(librosa.feature.rms(y=audio_data))
 
-      masked_note_inds =  (voiced_probs > 0.5) & voiced_flag
+      masked_note_inds =  (voiced_probs > 0.7) & voiced_flag
       if np.any(masked_note_inds) > 0:
         unique_notes = np.unique(librosa.hz_to_note(f0[masked_note_inds], unicode=False))
 

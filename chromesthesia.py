@@ -82,9 +82,11 @@ class Animator(Process):
         int(total_colour[1]*255), 
         int(total_colour[2]*255)
       ))
-      self.pixels.show()
-      if self.args.debug:
+      if self.args.debug_colours:
         print(", ".join(animated_notes), total_colour)
+
+
+    self.pixels.show()
     self.prev_total_colour = total_colour
 
     
@@ -153,7 +155,7 @@ class Animator(Process):
     self.on_disconnect_remove_notes(EventMonitor.EVENT_ISSUER_MIDI)
 
   def on_midi_note_on(self, note_data: NoteData):
-    if self.args.debug:
+    if self.args.debug_events:
       print("MIDI note on: ", note_data)
     midi_note_name = midi_name_from_note_data(note_data)
     self.note_on_animation(midi_note_name, note_data)
@@ -165,7 +167,7 @@ class Animator(Process):
       active_note.issuers.add(EventMonitor.EVENT_ISSUER_MIDI)
 
   def on_midi_note_off(self, note_data: NoteData):
-    if self.args.debug:
+    if self.args.debug_events:
       print("MIDI note off: ", note_data)
     midi_note_name = midi_name_from_note_data(note_data)
     # If the mic is still detecting the note then we shouldn't fade out
@@ -187,7 +189,7 @@ class Animator(Process):
     self.on_disconnect_remove_notes(EventMonitor.EVENT_ISSUER_MIC)
 
   def on_mic_note_on(self, note_data):
-    if self.args.debug:
+    if self.args.debug_events:
       print("MIC note on: ", note_data)
     midi_note_name = midi_name_from_note_data(note_data)
     self.note_on_animation(midi_note_name, note_data)
@@ -204,7 +206,7 @@ class Animator(Process):
       active_note.issuers.add(EventMonitor.EVENT_ISSUER_MIC)
 
   def on_mic_note_off(self, note_data):
-    if self.args.debug:
+    if self.args.debug_events:
       print("MIC note off: ", note_data)
     midi_note_name = midi_name_from_note_data(note_data)
     self.remove_active_note(midi_note_name, EventMonitor.EVENT_ISSUER_MIC)
@@ -255,7 +257,8 @@ if __name__ == '__main__':
   )
   args.add_argument("--midi", action="store_true", default=True, help="Use MIDI input.")
   args.add_argument("--mic", action="store_true", default=True, help="Use microphone input.")
-  args.add_argument("--debug", action="store_true", default=False, help="Print debug messages.")
+  args.add_argument("--debug_colours", action="store_true", default=False, help="Print debug messages showing the RGB.")
+  args.add_argument("--debug_events", action="store_true", default=False, help="Print debug messages showing the events.")
   args = args.parse_args()
 
   event_monitor = EventMonitor()
@@ -274,6 +277,7 @@ if __name__ == '__main__':
   animator.start()
   try:
     animator.join()
+    animator.terminate()
     if args.midi:
       midi_note_detector.terminate()
       midi_note_detector.join()
