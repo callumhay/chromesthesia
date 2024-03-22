@@ -177,19 +177,23 @@ class MicNoteDetector(Process):
   def run(self):
     MAX_SLEEP_TIME_S = 16
     find_mic_wait_time_s = 1
-    self._init_audio()
-    while True:
-      try:
-        self.mic_idx = self._find_mic()
-        if self.mic_idx == -1:
-          print("Microphone not found. Sleeping for a bit then retrying...")
-          time.sleep(find_mic_wait_time_s)
-          find_mic_wait_time_s = min(2*find_mic_wait_time_s, MAX_SLEEP_TIME_S)
-          continue
-        else:
-          self._start_audio_stream()
-          find_mic_wait_time_s = 1
-      except Exception as e:
-        print("Error occurred in Mic Note Detector Thread: ", e)
-        print("Reinitializing Mic Note Detector and restarting...")
-        self._init_audio()
+    try:
+      self._init_audio()
+      while True:
+        try:
+          self.mic_idx = self._find_mic()
+          if self.mic_idx == -1:
+            print("Microphone not found. Sleeping for a bit then retrying...")
+            time.sleep(find_mic_wait_time_s)
+            find_mic_wait_time_s = min(2*find_mic_wait_time_s, MAX_SLEEP_TIME_S)
+            continue
+          else:
+            self._start_audio_stream()
+            find_mic_wait_time_s = 1
+        except Exception as e:
+          print("Error occurred in Mic Note Detector Thread: ", e)
+          print("Reinitializing Mic Note Detector and restarting...")
+          self._init_audio()
+    except KeyboardInterrupt:
+      # For Ctrl+C to work cleanly
+      print("MicNoteDetector terminated. Exiting...")
