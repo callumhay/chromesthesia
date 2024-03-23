@@ -1,7 +1,8 @@
-
-from multiprocessing import Process
-import mido
 import time
+import argparse
+from multiprocessing import Process
+
+import mido
 import librosa
 
 from EventMonitor import EventMonitor
@@ -9,9 +10,10 @@ from NoteUtils import NoteData, note_data_from_midi_name
 
 class MidiNoteDetector(Process):
 
-  def __init__(self, event_monitor: EventMonitor):
+  def __init__(self, event_monitor: EventMonitor, args: argparse.Namespace):
     super(MidiNoteDetector, self).__init__()
     self.event_monitor = event_monitor
+    self.args = args
     self.midi_port = None
     self.active_notes = {}
 

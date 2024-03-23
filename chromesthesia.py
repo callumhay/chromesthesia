@@ -7,7 +7,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-
 from EventMonitor import EventMonitor
 from MicNoteDetector import MicNoteDetector
 from MidiNoteDetector import MidiNoteDetector
@@ -19,6 +18,11 @@ from ColourUtils import neopixel_gamma, rgb_to_lch, lch_to_rgb
 class NoteColourAnimation:
   note_lch_colour: np.ndarray
   animation: Animation
+
+@dataclass
+class NoteHistory:
+  start_time: float = float('-inf')
+  end_time: float = float('-inf')
 
 class Animator(Process):
   OFF_COLOUR = np.array([0.,0.,0.], dtype=np.float32)
@@ -50,6 +54,9 @@ class Animator(Process):
     # Currently active notes, also tracks the set of inputs the notes came from
     # so we can smartly process note on/off events.
     self.active_notes: Dict[str, NoteData] = {}
+    # Midi note history - keep track of times when notes have been active via MIDI
+    self.midi_note_history: Dict[str, NoteHistory] = {}
+
     # Currently active colour animations - these are the animations that are
     # currently contributing to the total colour of the LEDs. They are mapped
     # to the midi note name that they are animating.
@@ -176,12 +183,17 @@ class Animator(Process):
     for k in notes_to_remove:
       del self.active_notes[k]
       self.note_off_animation(k)
+    if issuer == EventMonitor.EVENT_ISSUER_MIDI:
+      for k in notes_to_remove:
+        self.midi_note_history[k].end_time = time.time()
 
   def remove_active_note(self, midi_note_name: str, issuer: str):
     note_data = self.active_notes.get(midi_note_name, None)
     if note_data is not None:
       note_data.issuers.discard(issuer)
       if len(note_data.issuers) == 0:
+        if issuer == EventMonitor.EVENT_ISSUER_MIDI:
+          self.midi_note_history[midi_note_name].end_time = time.time()
         del self.active_notes[midi_note_name]
         self.note_off_animation(midi_note_name)
 
@@ -212,6 +224,8 @@ class Animator(Process):
     else:
       active_note.intensity = note_data.intensity
       active_note.issuers.add(EventMonitor.EVENT_ISSUER_MIDI)
+    note_history = self.midi_note_history.get(midi_note_name, NoteHistory())
+    note_history.start_time = time.time()
 
   def on_midi_note_off(self, note_data: NoteData):
     if self.args.print_events:
@@ -238,18 +252,26 @@ class Animator(Process):
   def on_mic_note_on(self, note_data):
     if self.args.print_events:
       print("MIC note on: ", note_data)
+
     midi_note_name = midi_name_from_note_data(note_data)
-    self.note_on_animation(midi_note_name, note_data)
-    # Midi always takes precedence - if midi is connected and the note hasn't been
-    # detected yet then we don't add it to the active notes.
     active_note = self.active_notes.get(midi_note_name, None)
-    if self.is_midi_connected and active_note:
-      return
-    if active_note is None:
-      self.active_notes[midi_note_name] = note_data
+    if not self.args.no_midi_priority and self.is_midi_connected:
+      # Check whether the note is already active from midi or if
+      # the note was active in the past second via midi.
+      # If so, then we sustain it, otherwise we ignore it.
+      note_history = self.midi_note_history.get(midi_note_name, NoteHistory())
+      if (active_note is not None and EventMonitor.EVENT_ISSUER_MIDI in active_note.issuers) \
+        or (time.time() - note_history.end_time) < 1.0:
+
+        self.note_on_animation(midi_note_name, note_data)
+        active_note.issuers.add(EventMonitor.EVENT_ISSUER_MIC)
     else:
-      #active_note.intensity = note_data.intensity # Intensity isn't properly implemented for mic yet
-      active_note.issuers.add(EventMonitor.EVENT_ISSUER_MIC)
+      self.note_on_animation(midi_note_name, note_data)
+      if active_note is None:
+        self.active_notes[midi_note_name] = note_data
+      else:
+        #active_note.intensity = note_data.intensity # Intensity isn't properly implemented for mic yet
+        active_note.issuers.add(EventMonitor.EVENT_ISSUER_MIC)
 
   def on_mic_note_off(self, note_data):
     if self.args.print_events:
@@ -301,8 +323,7 @@ if __name__ == '__main__':
     description="Chromesthesia - LED colouring based on music notes.",
     formatter_class=argparse.ArgumentDefaultsHelpFormatter
   )
-  args.add_argument("--midi", action="store_true", default=True, help="Use MIDI input.")
-  args.add_argument("--mic", action="store_true", default=True, help="Use microphone input.")
+  args.add_argument("--no-midi-priority", action="store_true", default=False, help="Don't give MIDI priority over mic (active only when midi is connected).")
   args.add_argument("--print-colours", action="store_true", default=False, help="Print debug messages showing the RGB.")
   args.add_argument("--print-events", action="store_true", default=False, help="Print debug messages showing the events.")
   args.add_argument("--no-hw", action="store_true", default=False, help="Don't use hardware, just print debug messages.")
@@ -316,20 +337,16 @@ if __name__ == '__main__':
   # run in their own threads and interact with each other through this
   # main thread via a shared event monitor with registered callbacks.
   animator = Animator(event_monitor, args)
-  if args.midi:
-    midi_note_detector = MidiNoteDetector(event_monitor)
-    midi_note_detector.start()
-  if args.mic:
-    mic_note_detector = MicNoteDetector(event_monitor)
-    mic_note_detector.start()
-
+  midi_note_detector = MidiNoteDetector(event_monitor, args)
+  midi_note_detector.start()
+  mic_note_detector = MicNoteDetector(event_monitor, args)
+  mic_note_detector.start()
   animator.start()
+
   try:
     animator.join()
-    if args.midi:
-      midi_note_detector.join()
-    if args.mic:
-      mic_note_detector.join()
+    midi_note_detector.join()
+    mic_note_detector.join()
   except KeyboardInterrupt:
     # For Ctrl+C to work cleanly
     pass

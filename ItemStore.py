@@ -1,4 +1,3 @@
-import threading
 import multiprocessing
 
 class ItemStore(object):

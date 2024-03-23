@@ -1,3 +1,4 @@
+import argparse
 import sys
 import math
 import time
@@ -15,9 +16,10 @@ def round_up_to_even(f):
 
 class MicNoteDetector(Process):
 
-  def __init__(self, event_monitor: EventMonitor):
+  def __init__(self, event_monitor: EventMonitor, args: argparse.Namespace):
     super(MicNoteDetector, self).__init__()
     self.event_monitor = event_monitor
+    self.args = args
     self.audio = None
     self.stream = None
     self.mic_idx = -1
@@ -81,14 +83,18 @@ class MicNoteDetector(Process):
 
     # The FFT window should be quite small to resolve the frequencies with reasonable latency
     # 10-25 ms seems to be a good choice, anything more than 25 ms is too slow
-    PREF_FFT_WINDOW_SIZE_MS = 15
+    PREF_FFT_WINDOW_SIZE_MS = 25
 
     # Don't touch these
     FRAMES_PER_BUFFER = round_up_to_even(RATE / PREF_UPDATES_PER_SECOND)
     #DT_PER_FRAME_MS = FRAMES_PER_BUFFER / RATE * 1000 # ms
     FFT_WINDOW_SIZE = round_up_to_even(RATE * PREF_FFT_WINDOW_SIZE_MS / 1000.0) # Number of samples in the FFT window
+    HALF_FFT_WINDOW_SIZE = FFT_WINDOW_SIZE // 2
     #FFT_WINDOW_SIZE_MS = FFT_WINDOW_SIZE * 1000 / RATE # ms
     FFT_MAX_WINDOW_SIZE = 2 * FFT_WINDOW_SIZE # Number of samples in the maximum FFT window
+    NOTE_PROB_THRESHOLD = 0.25
+    if self.args.no_midi_priority:
+      NOTE_PROB_THRESHOLD = 0.5
 
     self.stream = self.audio.open(
       format=FORMAT, channels=CHANNELS,
@@ -109,7 +115,6 @@ class MicNoteDetector(Process):
     active_notes = {}
     #avg_rms = 0.0 # TODO: Use RMS to augment the intensity of the notes?
     while self.stream.is_active():
-      #print("Current queue len: ", len(audio_thread_q.queue))
       curr_audio_accum += self.audio_thread_store.getAll(blocking=True)
       if len(curr_audio_accum) > FFT_MAX_WINDOW_SIZE:
         curr_audio_accum = curr_audio_accum[-FFT_MAX_WINDOW_SIZE:]
@@ -125,9 +130,14 @@ class MicNoteDetector(Process):
         fmin=librosa.note_to_hz('C2'),
         fmax=librosa.note_to_hz('C7')
       )
+
+      # Remove half the window size from the beginning of the audio data to
+      # force a somewhat consistent overlap between the FFT windows
+      curr_audio_accum = curr_audio_accum[-HALF_FFT_WINDOW_SIZE:]
+
       #rms = np.mean(librosa.feature.rms(y=audio_data))
 
-      masked_note_inds =  (voiced_probs > 0.5) & voiced_flag
+      masked_note_inds =  (voiced_probs > NOTE_PROB_THRESHOLD) & voiced_flag
       if np.any(masked_note_inds) > 0:
         unique_notes = np.unique(librosa.hz_to_note(f0[masked_note_inds], unicode=False))
 
