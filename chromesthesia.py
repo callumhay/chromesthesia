@@ -11,7 +11,7 @@ import numpy as np
 from EventMonitor import EventMonitor
 from MicNoteDetector import MicNoteDetector
 from MidiNoteDetector import MidiNoteDetector
-from Animation import Animation, sqrtstep
+from Animation import Animation, sqrtstep, smoothstep
 from NoteUtils import NoteData, midi_name_from_note_data, note_to_rgb
 from ColourUtils import neopixel_gamma, rgb_to_lch, lch_to_rgb
 
@@ -116,8 +116,6 @@ class Animator(Process):
       total_lch_colour = np.array([0.,0.,0.], dtype=np.float32)
       for lch_colour, brightness, lum in zip(lch_colours, brightnesses, luminances):
         total_lch_colour += lch_colour * brightness * lum / total_luminance
-        #total_colour += np.power(curr_colour, 2.0) * curr_luminance / total_luminance
-      #total_colour = np.sqrt(total_colour)
       # Convert the total LCH colour back into sRGB
       total_colour = lch_to_rgb(total_lch_colour)
       np.clip(total_colour, 0.0, 1.0, out=total_colour)
@@ -165,7 +163,7 @@ class Animator(Process):
         1.0,
         0.0,
         Animator.DEFAULT_ANIM_FADE_OUT_TIME_S,
-        sqrtstep
+        smoothstep
       )
 
   def on_disconnect_remove_notes(self, issuer: str):
