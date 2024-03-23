@@ -108,8 +108,12 @@ class MidiNoteDetector(Process):
 
         while True:
           current_time = time.time()
-          for msg in self.midi_port.iter_pending():
+          msg = self.midi_port.receive(block=True)
+          if msg:
             self._update_active_notes(msg)
+            #self._print_midi_message(m)
+          #for msg in self.midi_port.iter_pending():
+            #self._update_active_notes(msg)
             #self._print_midi_message(m)
 
           # Every so often we should check to see if the midi ports have changed,
