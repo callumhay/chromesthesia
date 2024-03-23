@@ -24,7 +24,6 @@ class Animation(object):
 
   def reset(self, init_value, final_value, duration_s=None, interpolation_fn=None):
     assert isinstance(init_value, (int, float)) and not isinstance(init_value, bool)
-    assert type(init_value) == type(final_value)
     self.init_value = init_value
     self.final_value = final_value
     self._t = 0.0

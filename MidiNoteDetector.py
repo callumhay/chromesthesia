@@ -85,7 +85,13 @@ class MidiNoteDetector(Process):
       find_midi_wait_time_s = INIT_SLEEP_TIME_S
       while True:
         midi_ports = mido.get_input_names()
-        if len(midi_ports) == 0:
+        found_port_idx = -1
+        # Find the midi port name that we're looking for
+        for i, port_name in enumerate(midi_ports):
+          if self.args.midi_port_name.lower() in port_name.lower():
+            found_port_idx = i
+            break
+        if found_port_idx == -1:
           if find_midi_wait_time_s == INIT_SLEEP_TIME_S:
             print("No MIDI ports found. Sleeping for a bit then retrying...")
           time.sleep(find_midi_wait_time_s)
@@ -94,7 +100,7 @@ class MidiNoteDetector(Process):
         else:
           find_midi_wait_time_s = INIT_SLEEP_TIME_S
 
-        port_name = midi_ports[0]
+        port_name = midi_ports[found_port_idx]
         self.midi_port = mido.open_input(port_name)
         print('Opened MIDI port:', port_name)
         self.event_monitor.on_event(
@@ -111,9 +117,6 @@ class MidiNoteDetector(Process):
           msg = self.midi_port.receive(block=True)
           if msg:
             self._update_active_notes(msg)
-            #self._print_midi_message(m)
-          #for msg in self.midi_port.iter_pending():
-            #self._update_active_notes(msg)
             #self._print_midi_message(m)
 
           # Every so often we should check to see if the midi ports have changed,

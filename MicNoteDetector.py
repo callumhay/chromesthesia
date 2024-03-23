@@ -73,7 +73,7 @@ class MicNoteDetector(Process):
 
     FORMAT = pyaudio.paInt16
     CHANNELS = 1
-    RATE = 22050 #int(device_info['defaultSampleRate']) # Hz (samples per second of audio data)
+    RATE = int(device_info['defaultSampleRate']) # Hz (samples per second of audio data)
 
     # Number of updates per second for gathering frames of audio from the mic
     # This number needs to be high enough to provide the FFT with enough data
@@ -82,8 +82,8 @@ class MicNoteDetector(Process):
     PREF_UPDATES_PER_SECOND = 4096
 
     # The FFT window should be quite small to resolve the frequencies with reasonable latency
-    # 10-25 ms seems to be a good choice, anything more than 25 ms is too slow
-    PREF_FFT_WINDOW_SIZE_MS = 25
+    # 5 ms seems to be a good choice, anything more seems to miss too many notes
+    PREF_FFT_WINDOW_SIZE_MS = 5
 
     # Don't touch these
     FRAMES_PER_BUFFER = round_up_to_even(RATE / PREF_UPDATES_PER_SECOND)
@@ -92,9 +92,9 @@ class MicNoteDetector(Process):
     HALF_FFT_WINDOW_SIZE = FFT_WINDOW_SIZE // 2
     #FFT_WINDOW_SIZE_MS = FFT_WINDOW_SIZE * 1000 / RATE # ms
     FFT_MAX_WINDOW_SIZE = 2 * FFT_WINDOW_SIZE # Number of samples in the maximum FFT window
-    NOTE_PROB_THRESHOLD = 0.25
-    if self.args.no_midi_priority:
-      NOTE_PROB_THRESHOLD = 0.5
+    NOTE_PROB_THRESHOLD = 0.11
+    #if self.args.no_midi_priority:
+    #  NOTE_PROB_THRESHOLD = 0.5
 
     self.stream = self.audio.open(
       format=FORMAT, channels=CHANNELS,

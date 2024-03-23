@@ -224,7 +224,11 @@ class Animator(Process):
     else:
       active_note.intensity = note_data.intensity
       active_note.issuers.add(EventMonitor.EVENT_ISSUER_MIDI)
-    note_history = self.midi_note_history.get(midi_note_name, NoteHistory())
+
+    note_history = self.midi_note_history.get(midi_note_name, None)
+    if note_history is None:
+      note_history = NoteHistory()
+      self.midi_note_history[midi_note_name] = note_history
     note_history.start_time = time.time()
 
   def on_midi_note_off(self, note_data: NoteData):
@@ -263,6 +267,9 @@ class Animator(Process):
       if (active_note is not None and EventMonitor.EVENT_ISSUER_MIDI in active_note.issuers) \
         or (time.time() - note_history.end_time) < 1.0:
 
+        if active_note is None:
+          active_note = note_data
+          self.active_notes[midi_note_name] = note_data
         self.note_on_animation(midi_note_name, note_data)
         active_note.issuers.add(EventMonitor.EVENT_ISSUER_MIC)
     else:
@@ -323,6 +330,7 @@ if __name__ == '__main__':
     description="Chromesthesia - LED colouring based on music notes.",
     formatter_class=argparse.ArgumentDefaultsHelpFormatter
   )
+  args.add_argument("--midi-port-name", type=str, default="USB MIDI Interface", help="Name of the MIDI port to connect to.")
   args.add_argument("--no-midi-priority", action="store_true", default=False, help="Don't give MIDI priority over mic (active only when midi is connected).")
   args.add_argument("--print-colours", action="store_true", default=False, help="Print debug messages showing the RGB.")
   args.add_argument("--print-events", action="store_true", default=False, help="Print debug messages showing the events.")
