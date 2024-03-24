@@ -102,7 +102,7 @@ class MidiNoteDetector(Process):
 
         port_name = midi_ports[found_port_idx]
         self.midi_port = mido.open_input(port_name)
-        print('Opened MIDI port:', port_name)
+        print('MIDI port found:', port_name)
         self.event_monitor.on_event(
           EventMonitor.EVENT_ISSUER_MIDI,
           EventMonitor.EVENT_TYPE_CONNECTED,

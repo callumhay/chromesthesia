@@ -67,9 +67,7 @@ class MicNoteDetector(Process):
 
   def _start_audio_stream(self):
     device_info = self.audio.get_device_info_by_index(self.mic_idx)
-    print("Audio device (mic) found: ")
-    print(device_info)
-    print("Connecting device...")
+    print("Microphone/Line-in found:", device_info['name'], ", Sample Rate:", device_info['defaultSampleRate'])
 
     FORMAT = pyaudio.paInt16
     CHANNELS = 1
