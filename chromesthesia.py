@@ -113,7 +113,6 @@ class Animator(Process):
 
     # https://stackoverflow.com/questions/649454/what-is-the-best-way-to-average-two-colors-that-define-a-linear-gradient
     luminances = np.array([c[0] for c in lch_colours], dtype=np.float32)
-    total_luminance = np.sum(luminances)
     total_brightness = np.sum(brightnesses)
     total_colour = np.copy(Animator.OFF_COLOUR)
     if total_brightness > 0.0 and len(lch_colours) > 0:
@@ -121,9 +120,10 @@ class Animator(Process):
       # We're working in LCH colour space in order to provide a more perceptually
       # accurate blending/interpolation of colours.
       total_lch_colour = np.array([0.,0.,0.], dtype=np.float32)
-      for lch_colour, brightness, lum in zip(lch_colours, brightnesses, luminances):
-        total_lch_colour += lch_colour * brightness * lum / total_luminance
+      for lch_colour, brightness in zip(lch_colours, brightnesses):
+        total_lch_colour += lch_colour * brightness / total_brightness
       # Convert the total LCH colour back into sRGB
+      total_lch_colour[0] = np.mean(luminances)
       total_colour = lch_to_rgb(total_lch_colour)
       np.clip(total_colour, 0.0, 1.0, out=total_colour)
 
@@ -335,7 +335,7 @@ if __name__ == '__main__':
   args.add_argument("--print-colours", action="store_true", default=False, help="Print debug messages showing the RGB.")
   args.add_argument("--print-events", action="store_true", default=False, help="Print debug messages showing the events.")
   args.add_argument("--no-hw", action="store_true", default=False, help="Don't use hardware, just print debug messages.")
-  args.add_argument("--num-leds", type=int, default=40, help="Number of LEDs in the strip.")
+  args.add_argument("--num-leds", type=int, default=19, help="Number of LEDs in the strip.")
   args.add_argument("--brightness", type=float, default=1.0, help="LED brightness, must be a value in [0,1].")
   args = args.parse_args()
 
