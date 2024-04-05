@@ -120,12 +120,16 @@ class Animator(Process):
       # We're working in LCH colour space in order to provide a more perceptually
       # accurate blending/interpolation of colours.
       total_lch_colour = np.array([0.,0.,0.], dtype=np.float32)
-      for lch_colour, brightness in zip(lch_colours, brightnesses):
-        total_lch_colour += lch_colour * brightness / total_brightness
+      if len(lch_colours) > 1:
+        for lch_colour, brightness in zip(lch_colours, brightnesses):
+          total_lch_colour += lch_colour * brightness / total_brightness
+      else:
+        total_lch_colour = lch_colours[0] * total_brightness
+
       # Convert the total LCH colour back into sRGB
-      total_lch_colour[0] = np.mean(luminances)
       total_colour = lch_to_rgb(total_lch_colour)
       np.clip(total_colour, 0.0, 1.0, out=total_colour)
+      
 
     if not np.array_equal(self.prev_total_colour, total_colour):
       if self.pixels is not None:

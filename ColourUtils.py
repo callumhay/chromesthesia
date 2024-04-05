@@ -27,4 +27,8 @@ def neopixel_gamma(value: int):
 def rgb_to_lch(rgb):
   return np.array(convert_color(sRGBColor(*rgb), LCHuvColor).get_value_tuple(), dtype=np.float32)
 def lch_to_rgb(lch):
-  return np.array(convert_color(LCHuvColor(*lch), sRGBColor).get_value_tuple(), dtype=np.float32)
+  rgb = convert_color(LCHuvColor(*lch), sRGBColor)
+  
+  return np.array([
+    rgb.clamped_rgb_r, rgb.clamped_rgb_g, rgb.clamped_rgb_b
+  ], dtype=np.float32)
