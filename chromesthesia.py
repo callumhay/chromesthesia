@@ -91,6 +91,20 @@ class Animator(Process):
     if self.args.print_colours:
       animated_notes = set()
 
+    notes_already_seen = {}
+    filtered_anims = {}
+    for midi_note_name, note_colour_anim in self.active_animations.items():
+      note_name, _ = note_data_from_midi_name(midi_note_name)
+      anim = note_colour_anim.animation
+      curr_brightness = anim.update(dt)
+      if note_name in notes_already_seen:
+        if curr_brightness > notes_already_seen[note_name]:
+          notes_already_seen[note_name] = curr_brightness
+          filtered_anims[midi_note_name] = self.active_animations[midi_note_name]
+      else:
+        notes_already_seen[note_name] = curr_brightness
+        filtered_anims[midi_note_name] = self.active_animations[midi_note_name]
+
     note_colours = []
     brightnesses = []
     for midi_note_name, note_colour_anim in list(self.active_animations.items()):
@@ -99,17 +113,18 @@ class Animator(Process):
 
       # Use the original note colour as the basis for blending
       # and keep track of the maximum current intensity to scale the final colour.
-      curr_brightness = anim.update(dt)
+      curr_brightness = anim.curr_value
       assert 0.0 <= curr_brightness <= 1.0
-      brightnesses.append(curr_brightness)
-      note_colours.append(note_colour)
+
+      if midi_note_name in filtered_anims:
+        brightnesses.append(curr_brightness)
+        note_colours.append(note_colour)
 
       # If the animation is done and no longer contributes colour then we remove it
       if anim.is_done() and curr_brightness == 0.0:
         del self.active_animations[midi_note_name]
-      else:
-        if self.args.print_colours:
-          animated_notes.add(midi_note_name)
+      elif self.args.print_colours:
+        animated_notes.add(midi_note_name)
 
     total_brightness = np.sum(brightnesses)
     total_colour = np.copy(Animator.OFF_COLOUR)
@@ -137,21 +152,21 @@ class Animator(Process):
 
 
   def note_on_animation(self, midi_note_name: str, note_data: NoteData):
-    # Check whether the same note is already active (regardless of octave)
-    note_name, _ = note_data_from_midi_name(midi_note_name)
-    possible_midi_names = generate_all_possible_midi_names(note_name)
-    active_similar_anims = {k:v for k,v in self.active_animations.items() if k in possible_midi_names}
-
     curr_anim_value = 0.0
-    if len(active_similar_anims) > 0:
-      # A similar note (or the same note) already has an active animation,
-      # Take the brightest active animation and extend it.
+    if midi_note_name in self.active_animations:
+      curr_anim_value = self.active_animations[midi_note_name].animation.curr_value
+    else:
+      # Check whether the same note is already active (regardless of octave)
+      note_name, _ = note_data_from_midi_name(midi_note_name)
+      possible_midi_names = generate_all_possible_midi_names(note_name)
+      active_similar_anims = {k:v for k,v in self.active_animations.items() if k in possible_midi_names}
+      # If there are similar note(s) already active then we set the current brightness animation
+      # to the already animating value of the highest brightness note
       for v in active_similar_anims.values():
         if v.animation.curr_value > curr_anim_value:
           curr_anim_value = v.animation.curr_value
-      # Also, remove all existing animations for similar notes
-      for k in active_similar_anims.keys():
-        self.active_animations.pop(k, None)
+      for note_colour_anim in active_similar_anims.values():
+        note_colour_anim.animation.curr_value = curr_anim_value
 
     # Create the new animation
     # TODO: Consider using the distance between the curr_anim_value and 1.0 to determine the duration
@@ -169,10 +184,13 @@ class Animator(Process):
 
   def note_off_animation(self, midi_note_name: str):
     if midi_note_name in self.active_animations:
-      # Fade out the note
+      # Fade-out the note
+      # TODO: Consider using the distance between the curr_anim_value and 0.0 to determine the duration
+      # of the brightness decrease?
       note_anim = self.active_animations[midi_note_name].animation
+      curr_anim_value = note_anim.curr_value
       note_anim.reset(
-        1.0,
+        curr_anim_value,
         0.0,
         Animator.DEFAULT_ANIM_FADE_OUT_TIME_S,
         smoothstep
@@ -265,18 +283,7 @@ class Animator(Process):
     midi_note_name = midi_name_from_note_data(note_data)
     active_note = self.active_notes.get(midi_note_name, None)
     if not self.args.no_midi_priority and self.is_midi_connected:
-      # Check whether the note is already active from midi or if
-      # the note was active in the past second via midi.
-      # If so, then we sustain it, otherwise we ignore it.
-      note_history = self.midi_note_history.get(midi_note_name, NoteHistory())
-      if (active_note is not None and EventMonitor.EVENT_ISSUER_MIDI in active_note.issuers) \
-        or (time.time() - note_history.end_time) <= (0.5*Animator.DEFAULT_ANIM_FADE_OUT_TIME_S):
-
-        if active_note is None:
-          active_note = note_data
-          self.active_notes[midi_note_name] = note_data
-        self.note_on_animation(midi_note_name, note_data)
-        active_note.issuers.add(EventMonitor.EVENT_ISSUER_MIC)
+      pass
     else:
       self.note_on_animation(midi_note_name, note_data)
       if active_note is None:
@@ -290,8 +297,6 @@ class Animator(Process):
       print("MIC note off: ", note_data)
     midi_note_name = midi_name_from_note_data(note_data)
     self.remove_active_note(midi_note_name, EventMonitor.EVENT_ISSUER_MIC)
-    if midi_note_name in self.active_notes:
-      self.note_off_animation(midi_note_name)
 
   # ****** END OF CALLBACK FUNCTIONS ******
 

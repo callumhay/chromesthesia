@@ -18,8 +18,8 @@ class NoteData:
 CIRCLE_OF_FIFTHS_NOTE_NAMES  = ['A', 'E', 'B', 'Gb', 'Db', 'Ab', 'Eb', 'Bb', 'F', 'C', 'G', 'D']
 NOTE_COLOURS = [
   [1., 0., 0.],  # A
-  [1., .5, 0.],  # E
-  [1., .6, 0.], # B
+  [1., .35, 0.],  # E
+  [1., .55, 0.], # B
   [1., 1., 0.],  # Gb
   [.5, .65, 0.], # Db
   [0., 1., .5],  # Ab
