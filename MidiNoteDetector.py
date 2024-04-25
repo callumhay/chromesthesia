@@ -49,7 +49,7 @@ class MidiNoteDetector(Process):
           issuers={EventMonitor.EVENT_ISSUER_MIDI},
           note_name=note_name,
           note_octave=note_octave,
-          intensity=max(0.0, min(1.0, midi.velocity / SATURATION_VELOCITY))
+          intensity=1.0#max(0.0, min(1.0, midi.velocity / SATURATION_VELOCITY))
         )
         self.event_monitor.on_event(
           EventMonitor.EVENT_ISSUER_MIDI,

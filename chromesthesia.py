@@ -11,12 +11,12 @@ from EventMonitor import EventMonitor
 from MicNoteDetector import MicNoteDetector
 from MidiNoteDetector import MidiNoteDetector
 from Animation import Animation, sqrtstep, smoothstep
-from NoteUtils import NoteData, midi_name_from_note_data, note_to_rgb
-from ColourUtils import neopixel_gamma, rgb_to_lch, lch_to_rgb
+from NoteUtils import NoteData, midi_name_from_note_data, note_to_rgb, note_data_from_midi_name, generate_all_possible_midi_names
+from ColourUtils import gamma
 
 @dataclass
 class NoteColourAnimation:
-  note_lch_colour: np.ndarray
+  note_colour: np.ndarray
   animation: Animation
 
 @dataclass
@@ -26,8 +26,8 @@ class NoteHistory:
 
 class Animator(Process):
   OFF_COLOUR = np.array([0.,0.,0.], dtype=np.float32)
-  DEFAULT_ANIM_FADE_IN_TIME_S  = 0.1
-  DEFAULT_ANIM_FADE_OUT_TIME_S = 0.5
+  DEFAULT_ANIM_FADE_IN_TIME_S  = 0.05
+  DEFAULT_ANIM_FADE_OUT_TIME_S = 0.1
 
   def __init__(self, event_monitor: EventMonitor, args: argparse.Namespace):
     super(Animator, self).__init__()
@@ -91,10 +91,10 @@ class Animator(Process):
     if self.args.print_colours:
       animated_notes = set()
 
-    lch_colours = []
+    note_colours = []
     brightnesses = []
     for midi_note_name, note_colour_anim in list(self.active_animations.items()):
-      note_lch_colour = note_colour_anim.note_lch_colour
+      note_colour = note_colour_anim.note_colour
       anim = note_colour_anim.animation
 
       # Use the original note colour as the basis for blending
@@ -102,7 +102,7 @@ class Animator(Process):
       curr_brightness = anim.update(dt)
       assert 0.0 <= curr_brightness <= 1.0
       brightnesses.append(curr_brightness)
-      lch_colours.append(note_lch_colour)
+      note_colours.append(note_colour)
 
       # If the animation is done and no longer contributes colour then we remove it
       if anim.is_done() and curr_brightness == 0.0:
@@ -111,32 +111,23 @@ class Animator(Process):
         if self.args.print_colours:
           animated_notes.add(midi_note_name)
 
-    # https://stackoverflow.com/questions/649454/what-is-the-best-way-to-average-two-colors-that-define-a-linear-gradient
-    luminances = np.array([c[0] for c in lch_colours], dtype=np.float32)
     total_brightness = np.sum(brightnesses)
     total_colour = np.copy(Animator.OFF_COLOUR)
-    if total_brightness > 0.0 and len(lch_colours) > 0:
-      # Weighted average of the colours based on luminance
-      # We're working in LCH colour space in order to provide a more perceptually
-      # accurate blending/interpolation of colours.
-      total_lch_colour = np.array([0.,0.,0.], dtype=np.float32)
-      if len(lch_colours) > 1:
-        for lch_colour, brightness in zip(lch_colours, brightnesses):
-          total_lch_colour += lch_colour * brightness / total_brightness
-      else:
-        total_lch_colour = lch_colours[0] * total_brightness
+    if total_brightness > 0.0 and len(note_colours) > 0:
+      #max_idx = np.argmax(brightnesses)
+      #total_colour = note_colours[max_idx] * brightnesses[max_idx]
+      for brightness, note_colour in zip(brightnesses, note_colours):
+        total_colour = note_colour * brightness + (1.0 - brightness/total_brightness) * total_colour
 
-      # Convert the total LCH colour back into sRGB
-      total_colour = lch_to_rgb(total_lch_colour)
+      np.nan_to_num(total_colour, copy=False, nan=0.0)
       np.clip(total_colour, 0.0, 1.0, out=total_colour)
-      
 
     if not np.array_equal(self.prev_total_colour, total_colour):
       if self.pixels is not None:
         self.pixels.fill((
-          neopixel_gamma(int(total_colour[0]*255)),
-          neopixel_gamma(int(total_colour[1]*255)),
-          neopixel_gamma(int(total_colour[2]*255))
+          gamma(round(total_colour[0]*255)),
+          gamma(round(total_colour[1]*255)),
+          gamma(round(total_colour[2]*255))
         ))
         self.pixels.show()
       if self.args.print_colours:
@@ -146,25 +137,35 @@ class Animator(Process):
 
 
   def note_on_animation(self, midi_note_name: str, note_data: NoteData):
-    if midi_note_name not in self.active_animations:
-      rgb_note_colour = note_to_rgb(note_data.note_name, note_data.intensity)
-      self.active_animations[midi_note_name] = NoteColourAnimation(
-        note_lch_colour=rgb_to_lch(rgb_note_colour),
-        animation=Animation(
-          0.0,
-          1.0,
-          Animator.DEFAULT_ANIM_FADE_IN_TIME_S,
-          sqrtstep
-        )
-      )
-    else:
-      curr_anim = self.active_animations[midi_note_name].animation
-      # TODO: Consider using the distance between the two colours to determine the duration
-      curr_anim.reset(
-        curr_anim.curr_value,
+    # Check whether the same note is already active (regardless of octave)
+    note_name, _ = note_data_from_midi_name(midi_note_name)
+    possible_midi_names = generate_all_possible_midi_names(note_name)
+    active_similar_anims = {k:v for k,v in self.active_animations.items() if k in possible_midi_names}
+
+    curr_anim_value = 0.0
+    if len(active_similar_anims) > 0:
+      # A similar note (or the same note) already has an active animation,
+      # Take the brightest active animation and extend it.
+      for v in active_similar_anims.values():
+        if v.animation.curr_value > curr_anim_value:
+          curr_anim_value = v.animation.curr_value
+      # Also, remove all existing animations for similar notes
+      for k in active_similar_anims.keys():
+        self.active_animations.pop(k, None)
+
+    # Create the new animation
+    # TODO: Consider using the distance between the curr_anim_value and 1.0 to determine the duration
+    # of the brightness increase?
+    rgb_note_colour = note_to_rgb(note_data.note_name, note_data.intensity)
+    self.active_animations[midi_note_name] = NoteColourAnimation(
+      note_colour=rgb_note_colour,
+      animation=Animation(
+        curr_anim_value,
         1.0,
         Animator.DEFAULT_ANIM_FADE_IN_TIME_S,
+        sqrtstep
       )
+    )
 
   def note_off_animation(self, midi_note_name: str):
     if midi_note_name in self.active_animations:
@@ -269,7 +270,7 @@ class Animator(Process):
       # If so, then we sustain it, otherwise we ignore it.
       note_history = self.midi_note_history.get(midi_note_name, NoteHistory())
       if (active_note is not None and EventMonitor.EVENT_ISSUER_MIDI in active_note.issuers) \
-        or (time.time() - note_history.end_time) < 1.0:
+        or (time.time() - note_history.end_time) <= (0.5*Animator.DEFAULT_ANIM_FADE_OUT_TIME_S):
 
         if active_note is None:
           active_note = note_data
@@ -289,7 +290,7 @@ class Animator(Process):
       print("MIC note off: ", note_data)
     midi_note_name = midi_name_from_note_data(note_data)
     self.remove_active_note(midi_note_name, EventMonitor.EVENT_ISSUER_MIC)
-    if midi_note_name not in self.active_notes:
+    if midi_note_name in self.active_notes:
       self.note_off_animation(midi_note_name)
 
   # ****** END OF CALLBACK FUNCTIONS ******
