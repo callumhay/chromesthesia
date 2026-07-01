@@ -35,6 +35,8 @@ const DEFAULT_PARAMS = {
   velocityIntensity: true,     // MIDI velocity drives glow intensity
   // Note plumes: angular size multiplier for each note's lobe/plume.
   plumeSize: 1.0,              // 1 = default width; larger = fatter plumes
+  // MIDI: ignore note-ons whose velocity is below this cutoff (0..1).
+  velocityCutoff: 0.0,        // 0 = accept all notes
 };
 
 let COLOURS = null;          // { 'A': [r,g,b], ... } flat-named, 0..1

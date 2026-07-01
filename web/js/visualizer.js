@@ -473,9 +473,6 @@ void main() {
   const dispG = new Float32Array(NREG * ANG);
   const dispB = new Float32Array(NREG * ANG);
 
-  const chroma = new Float32Array(12);
-  const chromaRaw = new Float32Array(12);
-
   // Per-pitch-class background glow: for each of the 12 pitch classes, the
   // octave-shaded colour (rgb) and a weight (w = held energy). The background
   // aurora is tinted by the nearest held note's spoke colour, so it's [r,g,b,w]
@@ -496,7 +493,7 @@ void main() {
   // midi -> { velocity, onTime }. params comes from the debug panel.
   function feedNotes(notes, params, now) {
     angEnergy.fill(0); angR.fill(0); angG.fill(0); angB.fill(0); angW.fill(0);
-    chromaRaw.fill(0); pcGlow.fill(0);
+    pcGlow.fill(0);
 
     for (const [midi, note] of notes) {
       const map = NC.noteToColour(midi, note.velocity, params);
@@ -562,7 +559,6 @@ void main() {
         angR[idx] += cr * g; angG[idx] += cg * g; angB[idx] += cb * g;
         angW[idx] += g;
       }
-      chromaRaw[pc] += map.intensity;   // chord detection uses steady energy
 
       // accumulate this note's octave-shaded colour into its pitch class for
       // the background glow (keep the strongest contribution per pitch class)
@@ -614,11 +610,6 @@ void main() {
     if (pushed) rasterTrails();
   }
 
-  // smooth chroma for chord detection
-  function updateChroma() {
-    for (let i = 0; i < 12; i++) chroma[i] += (chromaRaw[i] - chroma[i]) * 0.25;
-  }
-
   // ---- resize + render -----------------------------------------------------
   function resize() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -639,7 +630,6 @@ void main() {
     const params = getParams();
 
     feedNotes(notes, params, now);
-    updateChroma();
 
     // overall level (drives the aurora/backdrop) and a soft beat on onsets
     let tot = 0;
@@ -695,7 +685,7 @@ void main() {
     return [angR[bi] / bw, angG[bi] / bw, angB[bi] / bw].map((v) => Math.round(v * 255));
   }
 
-  return { render, pulse, chroma, ANG, peakEnergy, debugState, sampleColour };
+  return { render, pulse, ANG, peakEnergy, debugState, sampleColour };
 }
 
 if (typeof window !== 'undefined') window.createVisualizer = createVisualizer;

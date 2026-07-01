@@ -31,6 +31,13 @@ const SECTIONS = [
     ],
     toggles: [],
   },
+  {
+    title: 'Midi',
+    sliders: [
+      ['velocityCutoff', 'velocity cutoff', 0.0, 1.0, 0.01, (v) => `${Math.round(v * 100)}%`],
+    ],
+    toggles: [],
+  },
 ];
 
 class DebugPanel {

@@ -1,0 +1,82 @@
+// Unit tests for chord.js exact-MIDI chord naming. Runs on plain Node:
+//   node web/js/chord.test.js
+//
+// The detector takes the EXACT set of held MIDI notes (no smoothing/filtering,
+// since MIDI gives exact note-on/off) and returns a display string:
+//   - a chord name when the held pitch classes exactly form a recognized chord
+//   - otherwise the held note names
+//   - '' when nothing is held
+
+'use strict';
+const assert = require('assert');
+const { nameFromMidiNotes } = require('./chord.js');
+
+let passed = 0;
+function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
+
+// --- the reported bugs ----------------------------------------------------
+
+// BUG: C + F (two notes) was showing "Csus4". Csus4 = C F G; with only C+F
+// held it must NOT be named a chord - it should show the two note names.
+test('C + F held shows note names, not Csus4', () => {
+  assert.strictEqual(nameFromMidiNotes([60, 65]), 'C F');   // C4, F4
+});
+
+// BUG: order dependence. C-then-F and F-then-C are the same held SET, so the
+// result must be identical regardless of order (the function takes a set).
+test('order independence: {C,F} == {F,C}', () => {
+  assert.strictEqual(nameFromMidiNotes([60, 65]), nameFromMidiNotes([65, 60]));
+});
+
+// BUG: stale readout. Releasing back to a single note must immediately reflect
+// just that note - no lingering chord.
+test('releasing to a single note shows that note only', () => {
+  assert.strictEqual(nameFromMidiNotes([60]), 'C');
+});
+
+test('releasing everything shows nothing', () => {
+  assert.strictEqual(nameFromMidiNotes([]), '');
+});
+
+// --- real chords ARE named (all tones present) ----------------------------
+
+test('C major triad (C E G) is named C', () => {
+  assert.strictEqual(nameFromMidiNotes([60, 64, 67]), 'C');
+});
+
+test('C minor (C Eb G) is named Cm', () => {
+  assert.strictEqual(nameFromMidiNotes([60, 63, 67]), 'Cm');
+});
+
+test('actual Csus4 (C F G) is named Csus4', () => {
+  assert.strictEqual(nameFromMidiNotes([60, 65, 67]), 'Csus4');
+});
+
+test('C7 (C E G Bb) is named C7', () => {
+  assert.strictEqual(nameFromMidiNotes([60, 64, 67, 70]), 'C7');
+});
+
+test('chord recognised regardless of octave spread (C3 E4 G5)', () => {
+  assert.strictEqual(nameFromMidiNotes([48, 64, 79]), 'C');
+});
+
+test('duplicate pitch classes across octaves still name the chord (C3 C4 E4 G4)', () => {
+  assert.strictEqual(nameFromMidiNotes([48, 60, 64, 67]), 'C');
+});
+
+// --- non-chords show note names -------------------------------------------
+
+test('two random notes show note names (C + F#)', () => {
+  assert.strictEqual(nameFromMidiNotes([60, 66]), 'C F#');
+});
+
+test('unrecognised cluster shows note names (C C# D)', () => {
+  assert.strictEqual(nameFromMidiNotes([60, 61, 62]), 'C C# D');
+});
+
+// note names are de-duplicated by pitch class and shown once
+test('same pitch class in two octaves shows once (C3 + C5)', () => {
+  assert.strictEqual(nameFromMidiNotes([48, 72]), 'C');
+});
+
+console.log(`\n${passed} tests passed.`);

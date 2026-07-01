@@ -75,6 +75,8 @@
   }
 
   function noteOn(midi, velocity) {
+    // ignore notes played softer than the velocity cutoff (debug panel > Midi)
+    if (velocity < (params.velocityCutoff || 0)) return;
     notes.set(midi, { velocity, onTime: performance.now() / 1000 });
     viz.pulse();
     refreshLit();
@@ -132,7 +134,8 @@
   // --- render loop ---------------------------------------------------------
   function frame(now) {
     viz.render(now, notes);
-    chord.update(viz.chroma, now / 1000);
+    // chord readout is driven by the EXACT held MIDI notes (no filtering)
+    chord.update(notes.keys());
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
