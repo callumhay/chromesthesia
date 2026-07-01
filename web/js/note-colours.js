@@ -30,8 +30,8 @@ const DEFAULT_PARAMS = {
   // for its octave relative to the reference octave (C4 = 100%). These bound the
   // shading so it never looks bad - low octaves darker but vivid, high octaves
   // brighter toward white.
-  octaveLowBrightness: 0.60,   // brightness of the lowest octaves (0..1)
-  octaveHighBrightness: 1.30,  // brightness of the highest octaves (1..~1.6)
+  octaveLowBrightness: 0.40,   // brightness of the lowest octaves (0..1)
+  octaveHighBrightness: 1.00,  // brightness of the highest octaves (1..~1.6)
   velocityIntensity: true,     // MIDI velocity drives glow intensity
 };
 

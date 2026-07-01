@@ -62,6 +62,7 @@ uniform float u_time;
 uniform float u_level;
 uniform float u_beat;
 uniform sampler2D u_hist;
+uniform vec4 u_pcGlow[12];   // per pitch class: rgb = octave-shaded colour, w = held weight
 
 const float TAU = 6.28318530718;
 const float ANGC = ${ANG_TEX}.0;
@@ -126,10 +127,38 @@ void main() {
   vec3 cold  = vec3(0.10, 0.35, 0.50);
   vec3 col = vec3(0.012, 0.022, 0.028);
 
+  // Background aurora, tinted by the held notes' spokes. Each pitch class i
+  // sits at wheel angle i/12; every held note contributes its colour weighted
+  // by angular closeness (a smooth falloff as you rotate away from its spoke)
+  // and its held strength. Contributions are BLENDED (weighted average), not
+  // winner-takes-all, so where two notes' wedges meet their colours mix
+  // smoothly with no hard seam. When notes are held the note colour replaces
+  // the dusty green; when silent it falls back to the original green aurora.
+  vec3 glowSum = vec3(0.0);
+  float glowW = 0.0;        // total angular weight (for the blend + green fade)
+  float glowAmt = 0.0;      // peak single-note presence here (drives intensity)
+  for (int i = 0; i < 12; i++) {
+    float w = u_pcGlow[i].w;
+    if (w <= 0.001) continue;
+    float d = abs(fract(pc01 - float(i) / 12.0 + 0.5) - 0.5);  // wrapped ang dist 0..0.5
+    float near = exp(-d * d * 42.0);          // smooth angular falloff along the spoke
+    float amt = near * w;
+    glowSum += u_pcGlow[i].rgb * amt;
+    glowW += amt;
+    glowAmt = max(glowAmt, amt);
+  }
+  vec3 glowCol = glowW > 1e-4 ? glowSum / glowW : vec3(0.0);   // blended hue
+  glowCol = max(glowCol, vec3(0.02));         // never fully black where a note glows
+
   float n = fbm(uv * 2.4 + vec2(u_time * 0.04, -u_time * 0.025));
   float n2 = fbm(uv * 5.0 - vec2(u_time * 0.06, 0.0));
-  col += cold * n * (0.07 + 0.38 * u_level);
-  col += phos * n * n2 * 0.22 * u_level;
+  // base green aurora, faded out where a note-coloured glow takes over
+  float greenFade = 1.0 - clamp(glowAmt * 1.5, 0.0, 1.0);
+  col += cold * n * (0.07 + 0.38 * u_level) * greenFade;
+  col += phos * n * n2 * 0.22 * u_level * greenFade;
+  // note-coloured aurora in the nearest spoke's hue
+  col += glowCol * n * (0.10 + 0.55 * glowAmt);
+  col += glowCol * n * n2 * 0.30 * glowAmt;
 
   float sectDist = abs(fract(pc01 * 12.0 + 0.5) - 0.5) / 12.0;
   float arcDist = sectDist * TAU * max(r, 0.001);
@@ -224,7 +253,7 @@ void main() {
   gl.vertexAttribPointer(locP, 2, gl.FLOAT, false, 0, 0);
 
   const U = {};
-  for (const name of ['u_res', 'u_time', 'u_level', 'u_beat', 'u_hist']) {
+  for (const name of ['u_res', 'u_time', 'u_level', 'u_beat', 'u_hist', 'u_pcGlow']) {
     U[name] = gl.getUniformLocation(prog, name);
   }
 
@@ -447,6 +476,14 @@ void main() {
   const chroma = new Float32Array(12);
   const chromaRaw = new Float32Array(12);
 
+  // Per-pitch-class background glow: for each of the 12 pitch classes, the
+  // octave-shaded colour (rgb) and a weight (w = held energy). The background
+  // aurora is tinted by the nearest held note's spoke colour, so it's [r,g,b,w]
+  // per pitch class. Smoothed copy is what the shader uniform reads.
+  const pcGlow = new Float32Array(12 * 4);
+  const dispPcGlow = new Float32Array(12 * 4);
+  const pcGlowUniform = new Float32Array(12 * 4);   // staged for gl.uniform4fv
+
   // pitch class index (0=A) -> angular bin center. A at 12 o'clock.
   function pcToAngleBin(pc) { return (pc / 12) * ANG; }
   // octave -> register band (0..NREG-1), low octave inner.
@@ -459,7 +496,7 @@ void main() {
   // midi -> { velocity, onTime }. params comes from the debug panel.
   function feedNotes(notes, params, now) {
     angEnergy.fill(0); angR.fill(0); angG.fill(0); angB.fill(0); angW.fill(0);
-    chromaRaw.fill(0);
+    chromaRaw.fill(0); pcGlow.fill(0);
 
     for (const [midi, note] of notes) {
       const map = NC.noteToColour(midi, note.velocity, params);
@@ -526,6 +563,14 @@ void main() {
         angW[idx] += g;
       }
       chromaRaw[pc] += map.intensity;   // chord detection uses steady energy
+
+      // accumulate this note's octave-shaded colour into its pitch class for
+      // the background glow (keep the strongest contribution per pitch class)
+      const gi = pc * 4;
+      const w = map.intensity;
+      if (w > pcGlow[gi + 3]) {
+        pcGlow[gi] = cr; pcGlow[gi + 1] = cg; pcGlow[gi + 2] = cb; pcGlow[gi + 3] = w;
+      }
     }
   }
 
@@ -605,10 +650,27 @@ void main() {
     resize();
     pushHistory(now);
 
+    // smooth the per-pitch-class glow toward the live frame, and stage it into
+    // the uniform buffer (colour rgb in xyz, weight in w). Weight rises fast
+    // (note attack) and falls gently (glow lingers as the note releases).
+    for (let i = 0; i < 12; i++) {
+      const b = i * 4;
+      for (let c = 0; c < 3; c++) {
+        dispPcGlow[b + c] += (pcGlow[b + c] - dispPcGlow[b + c]) * 0.35;
+      }
+      const tw = pcGlow[b + 3];
+      dispPcGlow[b + 3] += (tw - dispPcGlow[b + 3]) * (tw > dispPcGlow[b + 3] ? 0.5 : 0.12);
+      pcGlowUniform[b] = dispPcGlow[b];
+      pcGlowUniform[b + 1] = dispPcGlow[b + 1];
+      pcGlowUniform[b + 2] = dispPcGlow[b + 2];
+      pcGlowUniform[b + 3] = dispPcGlow[b + 3];
+    }
+
     gl.uniform2f(U.u_res, canvas.width, canvas.height);
     gl.uniform1f(U.u_time, now);
     gl.uniform1f(U.u_level, level);
     gl.uniform1f(U.u_beat, beat);
+    gl.uniform4fv(U.u_pcGlow, pcGlowUniform);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
