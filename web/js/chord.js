@@ -57,17 +57,30 @@ function exactMatch(heldSet, root, ivs) {
   return true;
 }
 
-// Name the exact chord formed by the held pitch classes, or null if the held
-// set is not a recognized chord.
-function chordName(heldSet) {
+// All exact names for the held pitch-class set (chord aliases), ordered so the
+// interpretation rooted on the bass note comes first, then by root ascending.
+// The same notes can name more than one chord (C6 == Am7, symmetric aug/dim7),
+// so this returns every valid (root, quality) match. Empty if not a chord.
+// bassPc: the pitch class of the lowest held note (may be null).
+function chordNames(heldSet, bassPc) {
+  const matches = [];
   for (let root = 0; root < 12; root++) {
     for (const q of QUALITIES) {
-      if (exactMatch(heldSet, root, q.ivs)) {
-        return PC_NAMES[root] + q.name;
-      }
+      if (exactMatch(heldSet, root, q.ivs)) matches.push({ root, name: PC_NAMES[root] + q.name });
     }
   }
-  return null;
+  matches.sort((a, b) => {
+    const ab = a.root === bassPc ? -1 : 0, bb = b.root === bassPc ? -1 : 0;
+    return (ab - bb) || (a.root - b.root);
+  });
+  return matches.map((m) => m.name);
+}
+
+// Convenience: the single primary exact name, or null. Used where only a
+// yes/no "is this an exact chord" answer is needed (e.g. implied-chord guard).
+function chordName(heldSet) {
+  const names = chordNames(heldSet);
+  return names.length ? names[0] : null;
 }
 
 // --- implied chords (supplementary) ---------------------------------------
@@ -159,10 +172,12 @@ function impliedChord(midiNotes) {
 function nameFromMidiNotes(midiNotes) {
   const { set, order } = pitchClasses(midiNotes);
   if (set.size === 0) return '';
-  const chord = chordName(set);
-  if (chord) return chord;
+  // exact chord(s): show every valid name (aliases), bass-note interpretation
+  // first, joined with " / " (C E G A -> "C6 / Am7")
+  const names = chordNames(set, order[0]);
+  if (names.length) return names.join(' / ');
   // not a recognized chord: show the held note names (deduped by pitch class,
-  // in the order first played)
+  // ordered by pitch)
   return order.map((pc) => PC_NAMES[pc]).join(' ');
 }
 

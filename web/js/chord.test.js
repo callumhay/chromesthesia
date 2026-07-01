@@ -48,8 +48,10 @@ test('C minor (C Eb G) is named Cm', () => {
   assert.strictEqual(nameFromMidiNotes([60, 63, 67]), 'Cm');
 });
 
-test('actual Csus4 (C F G) is named Csus4', () => {
-  assert.strictEqual(nameFromMidiNotes([60, 65, 67]), 'Csus4');
+// Csus4 (C F G) and Fsus2 (F G C) are the same three notes - a real alias, so
+// both names show, bass (C) first.
+test('actual Csus4 (C F G) is named "Csus4 / Fsus2" (sus alias)', () => {
+  assert.strictEqual(nameFromMidiNotes([60, 65, 67]), 'Csus4 / Fsus2');
 });
 
 test('C7 (C E G Bb) is named C7', () => {
