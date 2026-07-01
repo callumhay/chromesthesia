@@ -125,6 +125,9 @@
   document.getElementById('minBtn').addEventListener('click', () => {
     document.getElementById('dsp').classList.toggle('min');
   });
+  document.getElementById('hintMinBtn').addEventListener('click', () => {
+    document.getElementById('hint').classList.toggle('min');
+  });
 
   // --- render loop ---------------------------------------------------------
   function frame(now) {

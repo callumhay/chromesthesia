@@ -34,11 +34,17 @@
   <div id="celPanel"></div>
 </div>
 
-<div class="hint">
+<div class="hint" id="hint">
+  <div class="hintbar">
+    <span class="hintlabel">Notes / Help</span>
+    <button id="hintMinBtn" title="collapse/expand">–</button>
+  </div>
   <div id="notesReadout" class="readout">no notes</div>
-  Plug in a MIDI device, or play the on-screen keys:
-  <b>a s d f g h j k l</b> (white), <b>w e t y u o p</b> (black),
-  <b>z / x</b> octave down/up.
+  <div class="hintbody">
+    Plug in a MIDI device, or play the on-screen keys:
+    <b>a s d f g h j k l</b> (white), <b>w e t y u o p</b> (black),
+    <b>z / x</b> octave down/up.
+  </div>
 </div>
 
 <!-- modules: order matters (globals) -->

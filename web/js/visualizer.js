@@ -546,10 +546,10 @@ void main() {
       // energy so the shader's rim stack towers like a fundamental. Dividing by
       // the Gaussian area (as an FFT fold would, to conserve spectral mass)
       // shrank the peak ~7x and left every note a sliver.
-      // angular lobe width: a spike (sig~2) is a sliver, a fat blob (sig~6)
-      // swamps the trail motion. ~3.4 gives a clean petal that still reads as
-      // reactive when notes come and go.
-      const sig = 3.4;
+      // angular lobe/plume width: a spike (sig~2) is a sliver, a fat blob
+      // (sig~6) swamps the trail motion. ~3.4 gives a clean petal; the
+      // plumeSize debug param scales it so plumes can be made narrower/wider.
+      const sig = 3.4 * (params.plumeSize || 1.0);
       const rad = Math.ceil(sig * 2.5);
       const inv2s2 = 1 / (2 * sig * sig);
       const peak = energy * NOTE_ENERGY;

@@ -33,6 +33,8 @@ const DEFAULT_PARAMS = {
   octaveLowBrightness: 0.40,   // brightness of the lowest octaves (0..1)
   octaveHighBrightness: 1.00,  // brightness of the highest octaves (1..~1.6)
   velocityIntensity: true,     // MIDI velocity drives glow intensity
+  // Note plumes: angular size multiplier for each note's lobe/plume.
+  plumeSize: 1.0,              // 1 = default width; larger = fatter plumes
 };
 
 let COLOURS = null;          // { 'A': [r,g,b], ... } flat-named, 0..1
