@@ -1,0 +1,19 @@
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "400000"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(cd *)",
+      "WebFetch(domain:www.sidefx.com)",
+      "WebFetch(domain:gpuopen.com)",
+      "Read(//Users/callumhay/Library/Mobile Documents/iCloud~md~obsidian/Documents/master/Recurse/**)",
+      "WebFetch(domain:bartwronski.com)",
+      "WebFetch(domain:flaxengine.com)",
+      "WebFetch(domain:casual-effects.blogspot.com)",
+      "WebFetch(domain:remi-genin.github.io)",
+      "Read(//Applications/Unity/Hub/Editor/2022.3.28f1/Unity.app/Contents/Resources/PackageManager/BuiltInPackages/com.unity.render-pipelines.high-definition/Runtime/Lighting/ScreenSpaceLighting/**)"
+    ]
+  }
+}

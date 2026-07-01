@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>chromesthesia — midi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=VT323&display=swap" rel="stylesheet">
+<link href="./css/style.css" rel="stylesheet">
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="crt"></div>
+
+<!-- 12 pitch-class labels, A at 12 o'clock, positioned by main.js -->
+<div id="wheel"></div>
+
+<div id="chordbox">
+  <div id="chordname" style="opacity: 1;"></div>
+</div>
+
+<header>
+  <span class="title">chromesthesia · midi</span>
+  <span class="chip" id="midiChip"><span class="led"></span><span id="midiText">no midi</span></span>
+</header>
+
+<div id="dsp" class="panel">
+  <span class="bk"></span>
+  <div class="panelbar">
+    <span class="label">cel debug</span>
+    <button id="minBtn" title="collapse/expand">–</button>
+  </div>
+  <div id="celPanel"></div>
+</div>
+
+<div class="hint">
+  <div id="notesReadout" class="readout">no notes</div>
+  Plug in a MIDI device, or play the on-screen keys:
+  <b>a s d f g h j k l</b> (white), <b>w e t y u o p</b> (black),
+  <b>z / x</b> octave down/up.
+</div>
+
+<!-- modules: order matters (globals) -->
+<script src="./js/note-colours.js"></script>
+<script src="./js/chord.js"></script>
+<script src="./js/visualizer.js"></script>
+<script src="./js/midi-input.js"></script>
+<script src="./js/keyboard-input.js"></script>
+<script src="./js/debug-panel.js"></script>
+<script src="./js/main.js"></script>
+</body>
+</html>

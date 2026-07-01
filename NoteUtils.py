@@ -1,3 +1,5 @@
+import os
+import json
 import colorsys
 from typing import Set
 from dataclasses import dataclass
@@ -12,23 +14,18 @@ class NoteData:
   note_octave: int
   intensity: float = 1.0
 
-# The note names should be organized accruing to the circle of fifths,
-# the starting note will be red, all notes along the way are evenly distributed
-# across the HSV colour space.
-CIRCLE_OF_FIFTHS_NOTE_NAMES  = ['A', 'E', 'B', 'Gb', 'Db', 'Ab', 'Eb', 'Bb', 'F', 'C', 'G', 'D']
+# Note colours are the single source of truth shared with the web visualization
+# (web/ view). They live in note_colours.json at the repo root so editing a
+# colour updates both the LEDs and the web view. The order follows the circle
+# of fifths: the starting note is red and notes are distributed around the
+# colour space from there.
+_NOTE_COLOURS_JSON = os.path.join(os.path.dirname(__file__), 'note_colours.json')
+with open(_NOTE_COLOURS_JSON, 'r') as _f:
+  _note_colour_data = json.load(_f)
+
+CIRCLE_OF_FIFTHS_NOTE_NAMES = list(_note_colour_data['circle_of_fifths'])
 NOTE_COLOURS = [
-  [1., 0., 0.],  # A
-  [1., .35, 0.],  # E
-  [1., .55, 0.], # B
-  [1., 1., 0.],  # Gb
-  [.5, .65, 0.], # Db
-  [0., 1., .5],  # Ab
-  [0., 1., 1.],  # Eb
-  [0., .5, 1.],  # Bb
-  [0., 0., 1.],  # F
-  [.6, 0., .9],  # C
-  [1., 0., 1.],  # G
-  [1., 0., .5]   # D
+  list(_note_colour_data['colours'][name]) for name in CIRCLE_OF_FIFTHS_NOTE_NAMES
 ]
 
 PCT_BETWEEN_NOTES = 1.0 / len(CIRCLE_OF_FIFTHS_NOTE_NAMES)

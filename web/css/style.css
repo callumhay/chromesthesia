@@ -1,0 +1,163 @@
+/* Chromesthesia MIDI view — theme adapted from waveloop (Research/waveloop.html),
+   trimmed to the panels this view uses (header, wheel, chord readout, and the
+   cel-shading debug deck). */
+
+:root {
+  --bg: #04070a;
+  --phos: #46ffc8;
+  --phos-dim: rgba(70, 255, 200, 0.35);
+  --amber: #ffb13d;
+  --ink: #cfeee2;
+  --line: rgba(70, 255, 200, 0.18);
+  --panel: rgba(4, 12, 10, 0.82);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); }
+body {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--ink);
+  font-size: 13px;
+}
+#gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+/* CRT scanline + vignette overlay above the canvas, below the UI */
+#crt {
+  position: fixed; inset: 0; pointer-events: none; z-index: 2;
+  background:
+    repeating-linear-gradient(0deg, rgba(0,0,0,0.18) 0 1px, transparent 1px 3px),
+    radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.55) 100%);
+  mix-blend-mode: multiply;
+}
+
+/* pitch-class wheel labels */
+#wheel span {
+  position: fixed; z-index: 1;
+  transform: translate(-50%, -50%);
+  font-family: "VT323", ui-monospace, monospace; font-size: 19px;
+  color: rgba(207,238,226,0.38);
+  transition: color 0.25s, text-shadow 0.25s;
+  user-select: none; pointer-events: none;
+}
+#wheel span.lit { color: var(--phos); text-shadow: 0 0 12px var(--phos-dim); }
+
+/* chord readout in the center of the wheel */
+#chordbox {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  z-index: 1; text-align: center;
+  pointer-events: none; user-select: none;
+}
+#chordname {
+  font-family: "VT323", ui-monospace, monospace;
+  font-size: 58px; line-height: 1; min-height: 58px;
+  color: var(--phos);
+  text-shadow: 0 0 18px var(--phos-dim), 0 0 50px rgba(70,255,200,0.15);
+  transition: opacity 0.2s ease;
+}
+
+header {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 10px 16px;
+  background: linear-gradient(180deg, rgba(4,10,9,0.92), rgba(4,10,9,0.55) 80%, transparent);
+  border-bottom: 1px solid var(--line);
+}
+header .title {
+  font-size: 12px; letter-spacing: 3px; text-transform: uppercase;
+  color: var(--phos-dim); flex: 1;
+}
+button {
+  background: rgba(70,255,200,0.08);
+  border: 1px solid var(--line);
+  color: var(--phos);
+  font: inherit; font-weight: 600;
+  padding: 8px 14px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+button:hover { background: rgba(70,255,200,0.18); border-color: var(--phos-dim); }
+button:active { transform: translateY(1px); }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  border: 1px solid var(--phos-dim); padding: 6px 12px;
+  font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+  user-select: none; white-space: nowrap;
+  color: var(--phos); background: rgba(70,255,200,0.06);
+}
+.chip .led { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+.chip.connected { color: var(--phos); border-color: var(--phos-dim); }
+.chip.connected .led { background: var(--phos); box-shadow: 0 0 8px var(--phos); }
+
+/* debug panel (bottom-left), styled after waveloop's dsp deck with brackets */
+.panel {
+  position: fixed; bottom: 16px; left: 18px; z-index: 9;
+  width: min(340px, calc(100vw - 36px));
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 10px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+}
+.panel::before, .panel::after,
+.panel .bk::before, .panel .bk::after {
+  content: ""; position: absolute; width: 14px; height: 14px;
+  border: 2px solid var(--phos); opacity: 0.7;
+}
+.panel::before { left: -2px; top: -2px; border-right: none; border-bottom: none; }
+.panel::after { right: -2px; top: -2px; border-left: none; border-bottom: none; }
+.panel .bk::before { left: -2px; bottom: -2px; border-right: none; border-top: none; }
+.panel .bk::after { right: -2px; bottom: -2px; border-left: none; border-top: none; }
+.panel.min .krow, .panel.min .sub { display: none; }
+.panelbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.panelbar .label { font-size: 11px; letter-spacing: 2px; color: var(--phos-dim); text-transform: uppercase; flex: 1; }
+.panelbar button { padding: 2px 9px; font-size: 11px; }
+
+.sub {
+  font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+  color: var(--phos-dim); margin: 2px 0 6px;
+}
+.sub .tag { color: var(--phos); }
+
+.krow { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.krow .klabel {
+  flex: 0 0 110px;
+  font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+  color: var(--phos);
+}
+.krow input[type="range"] {
+  flex: 1; -webkit-appearance: none; appearance: none;
+  height: 4px; background: rgba(70,255,200,0.15); outline: none; cursor: pointer;
+}
+.krow input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 9px; height: 15px;
+  background: var(--phos); box-shadow: 0 0 8px var(--phos-dim); cursor: pointer;
+}
+.krow input[type="range"]::-moz-range-thumb {
+  width: 9px; height: 15px; border: none; border-radius: 0;
+  background: var(--phos); cursor: pointer;
+}
+.krow .kval {
+  flex: 0 0 40px; font-size: 10px; text-align: right;
+  color: rgba(207,238,226,0.6);
+}
+.krow .celtoggle input { accent-color: var(--phos); width: 16px; height: 16px; cursor: pointer; }
+
+.hint {
+  position: fixed; right: 16px; bottom: 16px; z-index: 9;
+  max-width: 280px; padding: 10px 12px;
+  background: var(--panel); border: 1px solid var(--line);
+  font-size: 11px; line-height: 1.5; color: rgba(207,238,226,0.7);
+}
+.hint b { color: var(--phos); }
+.readout {
+  margin-bottom: 8px; padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--phos); font-weight: 600; letter-spacing: 0.5px;
+}
+
+@media (max-width: 700px) {
+  #wheel span { font-size: 14px; }
+  #chordname { font-size: 40px; min-height: 40px; }
+  .panel { width: calc(100vw - 36px); }
+  .hint { display: none; }
+}

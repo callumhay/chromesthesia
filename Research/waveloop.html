@@ -1,0 +1,2363 @@
+<!DOCTYPE html>
+<!-- saved from url=(0040)https://saltblock.neynt.ca/waveloop.html -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>waveloop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com/">
+<link rel="preconnect" href="https://fonts.gstatic.com/" crossorigin="">
+<link href="./waveloop_files/css2" rel="stylesheet">
+<style>
+  :root {
+    --bg: #04070a;
+    --phos: #46ffc8;
+    --phos-dim: rgba(70, 255, 200, 0.35);
+    --amber: #ffb13d;
+    --ink: #cfeee2;
+    --line: rgba(70, 255, 200, 0.18);
+    --panel: rgba(4, 12, 10, 0.82);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); }
+  body {
+    font-family: "IBM Plex Mono", monospace;
+    color: var(--ink);
+    font-size: 13px;
+  }
+  #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+  /* CRT scanline + vignette overlay above the canvas, below the UI */
+  #crt {
+    position: fixed; inset: 0; pointer-events: none; z-index: 2;
+    background:
+      repeating-linear-gradient(0deg, rgba(0,0,0,0.18) 0 1px, transparent 1px 3px),
+      radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.55) 100%);
+    mix-blend-mode: multiply;
+  }
+
+  /* pitch-class wheel labels */
+  #wheel span {
+    position: fixed; z-index: 1;
+    transform: translate(-50%, -50%);
+    font-family: "VT323", monospace; font-size: 19px;
+    color: rgba(207,238,226,0.38);
+    transition: color 0.25s, text-shadow 0.25s;
+    user-select: none; pointer-events: none;
+  }
+
+  /* chord readout in the center of the wheel */
+  #chordbox {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    z-index: 1; text-align: center;
+    pointer-events: none; user-select: none;
+  }
+  #chordname {
+    font-family: "VT323", monospace;
+    font-size: 58px; line-height: 1; min-height: 58px;
+    color: var(--phos);
+    text-shadow: 0 0 18px var(--phos-dim), 0 0 50px rgba(70,255,200,0.15);
+    transition: opacity 0.2s ease;
+  }
+  #chordbox.sim #chordname {
+    color: var(--amber);
+    text-shadow: 0 0 18px rgba(255,177,61,0.4);
+  }
+  #chordsub {
+    margin-top: 4px;
+    font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+    color: rgba(207,238,226,0.45);
+  }
+
+  header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 10px 16px;
+    background: linear-gradient(180deg, rgba(4,10,9,0.92), rgba(4,10,9,0.55) 80%, transparent);
+    border-bottom: 1px solid var(--line);
+  }
+  button {
+    background: rgba(70,255,200,0.08);
+    border: 1px solid var(--line);
+    color: var(--phos);
+    font: inherit; font-weight: 600;
+    padding: 8px 14px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  button:hover { background: rgba(70,255,200,0.18); border-color: var(--phos-dim); }
+  button:active { transform: translateY(1px); }
+  button.toggled { background: var(--phos); color: #03110c; box-shadow: 0 0 16px var(--phos-dim); }
+
+  .chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    border: 1px solid; padding: 6px 12px;
+    font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+    user-select: none; white-space: nowrap;
+  }
+  .chip .led { width: 8px; height: 8px; border-radius: 50%; }
+  #modeChip.sim { color: var(--amber); border-color: rgba(255,177,61,0.4); background: rgba(255,177,61,0.06); }
+  #modeChip.sim .led { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+  #modeChip.mic, #modeChip.local { color: var(--phos); border-color: var(--phos-dim); background: rgba(70,255,200,0.06); }
+  #modeChip.mic .led, #modeChip.local .led { background: var(--phos); box-shadow: 0 0 8px var(--phos); }
+
+  #micNote {
+    position: fixed; right: 16px; top: 64px; z-index: 10;
+    max-width: 320px; padding: 10px 12px;
+    background: var(--panel); border: 1px solid var(--line);
+    font-size: 11px; line-height: 1.5; color: rgba(207,238,226,0.75);
+    display: none;
+  }
+
+  /* panels (deck bottom-right, dsp bottom-left), with corner brackets */
+  #panelwrap { display: contents; }
+  .panel {
+    position: fixed; bottom: 16px; z-index: 9;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    padding: 10px;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+  }
+  #panel { right: 18px; width: min(420px, calc(100vw - 36px)); }
+  #dsp { left: 18px; width: min(330px, calc(100vw - 36px)); }
+  .panel::before, .panel::after,
+  .panel .bk::before, .panel .bk::after {
+    content: ""; position: absolute; width: 14px; height: 14px;
+    border: 2px solid var(--phos); opacity: 0.7;
+  }
+  .panel::before { left: -2px; top: -2px; border-right: none; border-bottom: none; }
+  .panel::after { right: -2px; top: -2px; border-left: none; border-bottom: none; }
+  .panel .bk::before { left: -2px; bottom: -2px; border-right: none; border-top: none; }
+  .panel .bk::after { right: -2px; bottom: -2px; border-left: none; border-top: none; }
+  #panel.min #msg,
+  #panel.min #tracks, #panel.min #transport, #panel.min .sub { display: none; }
+  #dsp.min .krow, #dsp.min .sub,
+  #dsp.min #dspRawBtn, #dsp.min #dspMelodicBtn { display: none; }
+  .panelbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .panelbar .label { font-size: 11px; letter-spacing: 2px; color: var(--phos-dim); text-transform: uppercase; flex: 1; }
+  .panelbar button { padding: 2px 9px; font-size: 11px; }
+
+  .sub {
+    font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--phos-dim); margin: 2px 0 6px;
+  }
+  .sub .tag { color: var(--phos); }
+  .sub .tag.amber { color: var(--amber); }
+
+  #tracks {
+    list-style: none; margin: 0 0 8px; padding: 0; border: 1px solid var(--line);
+    max-height: 192px; overflow-y: auto;            /* ~8 rows, then scroll */
+    scrollbar-width: thin; scrollbar-color: var(--phos-dim) transparent;
+  }
+  #tracks::-webkit-scrollbar { width: 8px; }
+  #tracks::-webkit-scrollbar-track { background: transparent; }
+  #tracks::-webkit-scrollbar-thumb { background: var(--phos-dim); }
+  #tracks li {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 8px; cursor: pointer; font-size: 11px;
+    border-bottom: 1px solid rgba(70,255,200,0.08);
+    white-space: nowrap; overflow: hidden;
+  }
+  #tracks li:last-child { border-bottom: none; }
+  #tracks li:hover { background: rgba(70,255,200,0.08); }
+  #tracks li.active { color: var(--phos); background: rgba(70,255,200,0.10); }
+  #tracks li .no { color: rgba(207,238,226,0.4); flex: 0 0 18px; }
+  #tracks li.active .no { color: var(--phos); }
+  #tracks li .tname { overflow: hidden; text-overflow: ellipsis; }
+
+  #transport { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  #transport button { padding: 4px 10px; font-size: 11px; min-width: 62px; }
+  #seek, #syncDelay, .krow input {
+    flex: 1; -webkit-appearance: none; appearance: none;
+    height: 4px; background: rgba(70,255,200,0.15); outline: none; cursor: pointer;
+  }
+  #seek::-webkit-slider-thumb, #syncDelay::-webkit-slider-thumb,
+  .krow input::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 9px; height: 15px;
+    background: var(--phos); box-shadow: 0 0 8px var(--phos-dim); cursor: pointer;
+  }
+  #seek::-moz-range-thumb, #syncDelay::-moz-range-thumb,
+  .krow input::-moz-range-thumb {
+    width: 9px; height: 15px; border: none; border-radius: 0;
+    background: var(--phos); cursor: pointer;
+  }
+  #seek:disabled { opacity: 0.35; cursor: default; }
+  #ttime { font-size: 11px; color: rgba(207,238,226,0.6); white-space: nowrap; }
+  #syncrow { display: flex; align-items: center; gap: 8px; margin: -6px 0 12px; }
+  #syncrow .slabel {
+    font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--phos-dim); white-space: nowrap;
+  }
+  #syncrow #syncVal { font-size: 10px; color: rgba(207,238,226,0.6); white-space: nowrap; min-width: 46px; text-align: right; }
+  #panel.min #syncrow { display: none; }
+  #msg {
+    font-size: 11px; color: rgba(207,238,226,0.7);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #msg:empty { display: none; }
+
+  /* dsp knob rows */
+  .krow { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+  .krow .klabel {
+    flex: 0 0 96px;
+    font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+    color: rgba(207,238,226,0.55); cursor: help;
+  }
+  .krow.on .klabel { color: var(--phos); }
+  .krow .kval {
+    flex: 0 0 34px; font-size: 10px; text-align: right;
+    color: rgba(207,238,226,0.6);
+  }
+
+  @media (max-width: 700px) {
+    header { gap: 8px; padding: 8px 10px; }
+    #wheel span { font-size: 14px; }
+    #chordname { font-size: 40px; min-height: 40px; }
+
+    /* stack the panels in one scrollable column pinned to the bottom edge,
+       deck last (nearest the thumb); brackets need the panels to stay
+       positioned, so relative instead of static */
+    #panelwrap {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 9;
+      display: flex; flex-direction: column; gap: 10px;
+      padding: 8px 8px 10px;
+      max-height: 62vh; overflow-y: auto;
+    }
+    .panel { position: relative; bottom: auto; }
+    #panel, #dsp { left: auto; right: auto; width: auto; }
+    #panel { order: 2; }
+    #tracks { max-height: 22vh; overflow-y: auto; }
+
+    /* bigger touch targets */
+    button { padding: 10px 16px; }
+    .panelbar button { padding: 6px 14px; font-size: 12px; }
+    #transport button { padding: 9px 12px; }
+    #tracks li { padding: 10px; font-size: 12px; }
+    #seek, #syncDelay, .krow input { height: 6px; }
+    #seek::-webkit-slider-thumb, #syncDelay::-webkit-slider-thumb,
+    .krow input::-webkit-slider-thumb { width: 16px; height: 24px; }
+    #seek::-moz-range-thumb, #syncDelay::-moz-range-thumb,
+    .krow input::-moz-range-thumb { width: 16px; height: 24px; }
+    .krow { margin: 12px 0; }
+  }
+</style>
+<style data-rh="true">
+  @font-face {
+    font-family: 'Open Sans';
+    src: local('Open Sans Italic'), local('OpenSans-Italic'),
+      url('chrome-extension://jcggkkmhpnjfdkbdopniflkghfkgoalo/fonts/OpenSans-Italic.woff2') format('woff2'),
+      url('chrome-extension://jcggkkmhpnjfdkbdopniflkghfkgoalo/fonts/OpenSans-Italic.woff') format('woff');
+    font-weight: 400;
+    font-style: italic;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: 'Open Sans';
+    src: local('Open Sans Regular'), local('OpenSans-Regular'),
+      url('chrome-extension://jcggkkmhpnjfdkbdopniflkghfkgoalo/fonts/OpenSans-Regular.woff2') format('woff2'),
+      url('chrome-extension://jcggkkmhpnjfdkbdopniflkghfkgoalo/fonts/OpenSans-Regular.woff') format('woff');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: 'Open Sans';
+    src: local('Open Sans SemiBold Italic'), local('OpenSans-SemiBoldItalic'),
+      url('chrome-extension://jcggkkmhpnjfdkbdopniflkghfkgoalo/fonts/OpenSans-SemiBoldItalic.woff2') format('woff2'),
+      url('chrome-extension://jcggkkmhpnjfdkbdopniflkghfkgoalo/fonts/OpenSans-SemiBoldItalic.woff') format('woff');
+    font-weight: 600;
+    font-style: italic;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: 'Open Sans';
+    src: local('Open Sans SemiBold'), local('OpenSans-SemiBold'),
+      url('chrome-extension://jcggkkmhpnjfdkbdopniflkghfkgoalo/fonts/OpenSans-SemiBold.woff2') format('woff2'),
+      url('chrome-extension://jcggkkmhpnjfdkbdopniflkghfkgoalo/fonts/OpenSans-SemiBold.woff') format('woff');
+    font-weight: 600;
+    font-style: normal;
+    font-display: swap;
+  }
+</style></head>
+<body>
+<canvas id="gl" width="2160" height="3204"></canvas>
+<div id="crt"></div>
+<div id="wheel"><span style="left: 540px; top: 309.6px;">A</span><span style="left: 785.7px; top: 375.435px;">A#</span><span style="left: 965.565px; top: 555.3px;">B</span><span style="left: 1031.4px; top: 801px;">C</span><span style="left: 965.565px; top: 1046.7px;">C#</span><span style="left: 785.7px; top: 1226.56px;">D</span><span style="left: 540px; top: 1292.4px;">D#</span><span style="left: 294.3px; top: 1226.56px;">E</span><span style="left: 114.435px; top: 1046.7px;">F</span><span style="left: 48.6px; top: 801px;">F#</span><span style="left: 114.435px; top: 555.3px;">G</span><span style="left: 294.3px; top: 375.435px;">G#</span></div>
+<div id="chordbox" class="sim">
+  <div id="chordname" style="opacity: 1;"></div>
+  <div id="chordsub"></div>
+</div>
+
+<header>
+  <span class="chip sim" id="modeChip"><span class="led"></span><span id="modeText">IDLE</span></span>
+  <button id="micBtn" title="React to real sound through your microphone">Mic</button>
+</header>
+
+<div id="micNote">
+  Mic mode listens to whatever your microphone hears (e.g. the music from your
+  speakers) and drives the visuals from that real signal. Audio stays in your
+  browser; nothing is recorded or sent anywhere.
+</div>
+
+<div id="panelwrap">
+<div id="panel" class="panel">
+  <span class="bk"></span>
+  <div class="panelbar">
+    <span class="label">deck</span>
+    <button id="minBtn">–</button>
+  </div>
+  <ul id="tracks"><li><span class="no">01</span><span class="tname">ava</span></li><li><span class="no">02</span><span class="tname">Bach - Air on G String</span></li><li><span class="no">03</span><span class="tname">Chess Type Beat ｜ joyful - chess (slowed)</span></li><li><span class="no">04</span><span class="tname">EMELINE - STRUT (Official Video)</span></li><li><span class="no">05</span><span class="tname">INZO - Overthinker</span></li><li><span class="no">06</span><span class="tname">ISOxo - dontstopme! (Official Visualizer)</span></li><li><span class="no">07</span><span class="tname">ISOxo - how2fly (Official Visualizer)</span></li><li><span class="no">08</span><span class="tname">ISOxo - REDloop</span></li><li><span class="no">09</span><span class="tname">Martin Garrix &amp; Mesto - Breakaway (feat. WILHELM) [Official Video]</span></li><li><span class="no">10</span><span class="tname">MEGALOVANIA</span></li><li><span class="no">11</span><span class="tname">Mili - SAIKAI</span></li><li><span class="no">12</span><span class="tname">Mili - TIAN TIAN</span></li><li><span class="no">13</span><span class="tname">Mili - What the Ripple Sees</span></li><li><span class="no">14</span><span class="tname">Mr.Kitty - After Dark</span></li><li><span class="no">15</span><span class="tname">Ninajirachi - CSIRAC</span></li><li><span class="no">16</span><span class="tname">Ninajirachi - Infohazard (Official Video)</span></li><li><span class="no">17</span><span class="tname">Ninajirachi &amp; daine - It's You</span></li><li><span class="no">18</span><span class="tname">Porter Robinson - Get your Wish (Official Music Video)</span></li><li><span class="no">19</span><span class="tname">WAVE ⧸ niki feat.Lily</span></li><li><span class="no">20</span><span class="tname">メズマライザー ⧸ 初音ミク・重音テトSV</span></li><li><span class="no">21</span><span class="tname">暗叫</span></li></ul>
+  <div id="transport">
+    <button id="playBtn">Play</button>
+    <input id="seek" type="range" min="0" max="1000" value="0" disabled="">
+    <span id="ttime">--:-- / --:--</span>
+  </div>
+  <div id="syncrow" title="Delays the heard audio so it lines up with the analyser/visual pipeline">
+    <span class="slabel">visual sync</span>
+    <input id="syncDelay" type="range" min="0" max="300" step="10" value="110">
+    <span id="syncVal">110 ms</span>
+  </div>
+  <div id="msg"></div>
+</div>
+
+<div id="dsp" class="panel min">
+  <span class="bk"></span>
+  <div class="panelbar">
+    <span class="label">dsp</span>
+    <button id="dspRawBtn" title="All postprocessing off: raw folded spectrum">Raw</button>
+    <button id="dspMelodicBtn" title="A moderate blend of all layers, tuned to pull melody out of bright/busy mixes" class="toggled">Melodic</button>
+    <button id="dspMinBtn">+</button>
+  </div>
+  <div class="sub">postprocessing // <span class="tag" id="dspTag">melodic</span></div>
+  <div class="krow on" title="Attenuate energy at integer multiples of detected spectral peaks, so overtones of bright timbres (squares, brass) stop reading as their own notes">
+    <span class="klabel">overtone cut</span>
+    <input type="range" id="kOvertone" min="0" max="100" value="35">
+    <span class="kval" id="vOvertone">35%</span>
+  </div>
+  <div class="krow on" title="Spectral whitening: flatten the broadband tilt so bass energy stops dominating the wheel">
+    <span class="klabel">whiten</span>
+    <input type="range" id="kWhiten" min="0" max="100" value="35">
+    <span class="kval" id="vWhiten">35%</span>
+  </div>
+  <div class="krow on" title="Equal-loudness-ish weighting: convert raw spectrum energy toward perceived loudness, gently dimming sub-bass and air-band energy">
+    <span class="klabel">phon weight</span>
+    <input type="range" id="kPhon" min="0" max="100" value="35">
+    <span class="kval" id="vPhon">35%</span>
+  </div>
+  <div class="krow on" title="Sharpen spectral peaks and dim the smear between them">
+    <span class="klabel">peak focus</span>
+    <input type="range" id="kFocus" min="0" max="100" value="30">
+    <span class="kval" id="vFocus">30%</span>
+  </div>
+  <div class="krow on" title="Mute bins far below the loudest current peak">
+    <span class="klabel">noise gate</span>
+    <input type="range" id="kGate" min="0" max="100" value="25">
+    <span class="kval" id="vGate">25%</span>
+  </div>
+  <div class="krow on" title="Duck bins that jump suddenly above their own recent average: kicks and snares fade, held notes pass">
+    <span class="klabel">drum cut</span>
+    <input type="range" id="kDrums" min="0" max="100" value="30">
+    <span class="kval" id="vDrums">30%</span>
+  </div>
+</div>
+</div>
+
+<audio id="localAudio" preload="none"></audio>
+
+<script>
+'use strict';
+
+/* ---------------------------------------------------------------- WebGL */
+
+const canvas = document.getElementById('gl');
+const gl = canvas.getContext('webgl', { antialias: false, alpha: false })
+        || canvas.getContext('experimental-webgl');
+
+const VERT = `
+attribute vec2 p;
+void main() { gl_Position = vec4(p, 0.0, 1.0); }
+`;
+
+/* The visualizer is a pitch-class wheel: angle = fract(log2(f / 440)), so
+   every octave of a note lands on the same spoke (A at 12 o'clock, ascending
+   clockwise). The CPU keeps ~5 seconds of per-register-band emission history
+   and rasterizes it every frame into the RGBA radial trail map sampled here
+   (REGS vertically stacked blocks, T axis = radius; rgb = premultiplied
+   register color with fade baked in, a = faded energy): each history row
+   sits at the radius its own stored amplitude has carried it to, so motion
+   is amplitude-driven - the loudest components shoot across the whole window
+   while quiet accompaniment and noise linger near the ring, and the main
+   line visually outruns everything else (see rasterTrails below). Color is
+   continuous Oklch, computed CPU-side per FFT bin (hue encodes absolute
+   frequency on a log scale, red at 20 Hz to violet at 20 kHz; lightness
+   climbs the register axis - dark bass, fully saturated mids around common
+   fundamentals, pale sparkly treble).
+   Display energies live in 0..EMAX (loud fundamentals overshoot 1 instead
+   of clipping at the old AGC ceiling); the trail map stores sqrt(v / EMAX)
+   in alpha (and rgb premultiplied by that encoded alpha) so the u8 texture
+   keeps low-end precision while carrying the extra headroom.
+   Because the bands stay separate all the way to the screen, a pitch class
+   sounding in several octaves renders as a stacked histogram on the rim
+   (low register innermost), with color gliding continuously through the
+   register ramp up the stack (u_rim carries the inverse CDF of each angle's
+   register distribution) instead of cutting between a few band colors;
+   register lives in the stack position and hue, never in the speed. The
+   field extends past the
+   farthest screen corner, and radius is a concave function of age, so
+   material surges off the rim and decelerates as it drifts outward. */
+
+// angular layout, needed by the shader source below: ANG analysis bins
+// around the circle, supersampled AOS x in the trail map so the CPU raster
+// can lerp row geometry between bins (4x on desktop; 2x on small screens /
+// few-core devices, where the per-push raster cost and 4 MB texture uploads
+// would bite and the smaller radii hide the difference anyway)
+const ANG = 256;
+const AOS = (Math.min(screen.width, screen.height) < 700
+          || (navigator.hardwareConcurrency || 8) <= 4) ? 2 : 4;
+const ANG_TEX = ANG * AOS;                  // trail map width (shader ANGC)
+
+// full audible band; declared above FRAG so the shader's register ramp can
+// bake the octave span into its hue rate
+const F_LO = 20, F_HI = 20000;
+const OCT_SPAN = Math.log2(F_HI / F_LO);  // ~9.97 octaves
+
+// rim stack color: the CPU folds a fine RIM_REGS-bin register histogram per
+// angle and inverts it into a RIMT-texel register-at-stack-fraction texture
+// (u_rim); RIMT is baked into FRAG below
+const RIM_REGS = 48;
+const RIMT = 64;
+
+const FRAG = `
+precision highp float;
+uniform vec2 u_res;
+uniform float u_time;
+uniform float u_level;    // smoothed overall energy 0..1
+uniform float u_beat;     // beat pulse envelope 0..1
+uniform sampler2D u_hist; // ANG x (RBINS*REGS) RGBA radial trail map, CPU-rasterized
+uniform sampler2D u_rim;  // ANG x RIMT luminance: register at stack fraction
+
+const float TAU = 6.28318530718;
+const float ANGC = ${ANG_TEX}.0;  // trail map angular width, ANG * AOS
+const float ANGN = ${ANG}.0;      // rim register texture width (no supersample)
+const float RBINS = 256.0;
+const float REGS = 4.0;
+const float TROWS = RBINS * REGS;
+const float R0 = 0.19;   // base ring radius (fraction of min dimension)
+const float RT = 0.40;   // semitone tick radius (the old trail edge)
+const float EMAX = 2.0;  // display-energy ceiling; alpha stores sqrt(v / EMAX)
+const float OCTS = ${OCT_SPAN.toFixed(4)};  // octaves 20 Hz..20 kHz (OCT_SPAN)
+const float RIMT = ${RIMT}.0; // rim texture height (stack-fraction texels)
+
+float hash(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+float noise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+             mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+float fbm(vec2 p) {
+  float v = 0.0, a = 0.5;
+  for (int i = 0; i < 4; i++) {
+    v += a * noise(p);
+    p = p * 2.03 + vec2(1.7, 9.2);
+    a *= 0.5;
+  }
+  return v;
+}
+
+/* cubic B-spline reconstruction across w angular columns, folded into two
+   hardware LINEAR taps (a true 4-texel C2 kernel, no per-texel plateaus, so
+   arcs blend continuously instead of terracing into column steps): tap
+   S-coordinates in .x/.y, left-tap weight in .z. REPEAT wrap in S absorbs
+   out-of-range taps at pc01 ~ 0. */
+vec3 bspline(float pc01, float w) {
+  float pcT = pc01 * w - 0.5;        // integers at texel centers
+  float ip = floor(pcT);
+  float f = pcT - ip;
+  float f2 = f * f, f3 = f2 * f;
+  float w0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0;
+  float w1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0;
+  float w3 = f3 / 6.0;
+  float g0 = w0 + w1;                // left-tap weight; in [1/6, 5/6]
+  return vec3((ip - 0.5 + w1 / g0) / w,
+              (ip + 1.5 + w3 / (1.0 - g0)) / w, g0);
+}
+
+/* sample one band's block of the radial trail map at normalized radius xr.
+   ang carries a precomputed cubic B-spline filter across the angular axis
+   (see main): two LINEAR tap S-coordinates in .x/.y and the left tap's
+   weight in .z. Radially the coords clamp to texel centers inside the band
+   (plain LINEAR; the CPU raster already writes radially continuous columns)
+   so filtering never bleeds across band boundaries. */
+vec4 radAt(vec3 ang, float xr, float band) {
+  float y = (clamp(xr, 0.0, 1.0) * (RBINS - 1.0) + 0.5 + band * RBINS) / TROWS;
+  return mix(texture2D(u_hist, vec2(ang.y, y)),
+             texture2D(u_hist, vec2(ang.x, y)), ang.z);
+}
+
+/* register (0..1 over 20 Hz..20 kHz) found at stack fraction t of this
+   angle's live energy, off the rim inverse-CDF texture; same B-spline
+   filtering across angles. LINEAR filtering in T melts the CDF's register
+   jumps into thin gradients, so simultaneous octaves meet in a short color
+   glide instead of a hard band cut. */
+float regAt(vec3 ang, float t) {
+  float y = (t * (RIMT - 1.0) + 0.5) / RIMT;
+  return mix(texture2D(u_rim, vec2(ang.y, y)),
+             texture2D(u_rim, vec2(ang.x, y)), ang.z).r;
+}
+
+/* continuous register ramp, the in-shader twin of the CPU's REG_LUT:
+   Oklch with hue advancing ~60 degrees per octave, lightness climbing the
+   whole register axis, chroma peaking near C4. Colors the rim stack so its
+   hue glides smoothly with the register found at each height. */
+vec3 regColor(float o) {
+  float h = (24.0 + o * OCTS * 60.0) * 0.01745329;
+  float t = (o - 0.37) / 0.30;
+  float C = 0.05 + 0.145 * exp(-t * t);
+  float L = 0.30 + 0.63 * o;
+  float a = C * cos(h), b = C * sin(h);
+  float l = L + 0.3963377774 * a + 0.2158037573 * b;
+  float m = L - 0.1055613458 * a - 0.0638541728 * b;
+  float s = L - 0.0894841775 * a - 1.2914855480 * b;
+  l = l * l * l; m = m * m * m; s = s * s * s;
+  vec3 rgb = vec3( 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+                  -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+                  -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s);
+  return pow(clamp(rgb, 0.0, 1.0), vec3(0.4545));
+}
+
+void main() {
+  float mn = min(u_res.x, u_res.y);
+  vec2 uv = (gl_FragCoord.xy - 0.5 * u_res) / mn;
+  float r = length(uv);
+  float pc01 = fract(atan(uv.x, uv.y) / TAU); // 0 = A at top, ascending clockwise
+
+  // angular B-spline filters (see bspline above), shared by the trail loop
+  // and the rim stack: one over the supersampled trail map columns, one
+  // over the rim color texture's analysis-resolution columns
+  vec3 ang = bspline(pc01, ANGC);
+  vec3 angN = bspline(pc01, ANGN);
+
+  vec3 phos  = vec3(0.27, 1.0, 0.78);
+  vec3 cold  = vec3(0.10, 0.35, 0.50);
+
+  vec3 col = vec3(0.012, 0.022, 0.028);
+
+  // drifting aurora backdrop, brightened by energy
+  float n = fbm(uv * 2.4 + vec2(u_time * 0.04, -u_time * 0.025));
+  float n2 = fbm(uv * 5.0 - vec2(u_time * 0.06, 0.0));
+  col += cold * n * (0.07 + 0.38 * u_level);
+  col += phos * n * n2 * 0.22 * u_level;
+
+  // 12 radial spokes through the chromatic note positions (A at top,
+  // ascending clockwise) - the pitch-class wheel's guide lines. Constant
+  // pixel width via perpendicular arc distance; they start just outside the
+  // base ring (keeping the chord readout clear) and fade past the labels.
+  float sectDist = abs(fract(pc01 * 12.0 + 0.5) - 0.5) / 12.0;
+  float arcDist = sectDist * TAU * max(r, 0.001);
+  float spoke = exp(-arcDist * arcDist * 1.2e5);
+  col += phos * spoke * smoothstep(0.0, 0.04, r - (R0 + 0.01))
+       * (1.0 - 0.6 * smoothstep(0.46, 0.85, r)) * 0.05;
+
+  float r0 = R0 + 0.008 * u_beat;
+
+  // --- history trails, one per register band, read straight off the radial
+  // trail map: the CPU raster has already placed every history row at the
+  // radius its own amplitude carried it to (loud rows fly for the corners,
+  // quiet rows linger by the ring), with the age fade baked in. The field
+  // extends past the farthest screen corner.
+  float rOut = 0.5 * length(u_res) / mn + 0.03;
+  float xr = clamp((r - r0) / (rOut - r0), 0.0, 1.0);
+  float trailMask = smoothstep(0.0, 0.008, r - r0);
+  for (int j = 0; j < 4; j++) {
+    vec4 h = radAt(ang, xr, float(j));
+    // decode sqrt-encoded energy; premultiplied rgb = h.rgb * h.a * EMAX.
+    // The contrast knee that sinks faint inter-note haze is baked into the
+    // texture by the CPU raster (bins >= 1), so it lands BEFORE the angular
+    // B-spline instead of after it - applying it here re-sharpened the
+    // filter's soft ramps back into hard per-column steps.
+    float ha = h.a * h.a * EMAX;
+    col += h.rgb * h.a * EMAX * (0.55 + 0.95 * ha) * trailMask;
+  }
+
+  // --- leading rim: stacked histogram of the current energy at each angle,
+  // growing outward from the ring, low register innermost. Total height is
+  // the angle's energy; the color at each height is the register ramp at
+  // whatever register the inverse CDF (u_rim) puts there, so the stack
+  // glides continuously through the Oklch ramp - simultaneous octaves of
+  // one pitch class still occupy distinct radial zones, proportioned by
+  // their energy, but meet in gradients instead of hard band cuts.
+  vec4 hn[4];
+  float eTot = 0.0;
+  for (int j = 0; j < 4; j++) {
+    hn[j] = radAt(ang, 0.0, float(j));
+    eTot += hn[j].a * hn[j].a * EMAX;
+  }
+  // stack height grows ~quadratically through the musical range and only
+  // flattens on a soft asymptote (~0.31, out by the semitone ticks), so loud
+  // fundamentals tower over accompaniment instead of sharing one ceiling;
+  // the asymptote is the sanity rail for freak spikes
+  float s2 = eTot * eTot;
+  float stackH = 0.006 + 0.30 * s2 / (s2 + 4.0);
+  float xo = r - r0;                            // distance outward from ring
+  // edge feather over a few px, like the old per-segment crossfade
+  float aa = 0.003;
+  float stk = smoothstep(-aa, aa, xo) - smoothstep(stackH - aa, stackH + aa, xo);
+  if (stk > 0.001) {
+    float bright = 0.25 + 0.85 * min(eTot, 2.2);
+    col += regColor(regAt(angN, clamp(xo / stackH, 0.0, 1.0))) * stk * bright;
+  }
+
+  // base ring glow: dim phosphor on silent spokes, adopting the live chroma
+  // color where a note sounds so the fixed cyan never buries it
+  float ringGlow = exp(-abs(r - r0) * 70.0);
+  float occupied = clamp(eTot * 4.0, 0.0, 1.0);
+  vec3 sumRgb = (hn[0].rgb * hn[0].a + hn[1].rgb * hn[1].a
+               + hn[2].rgb * hn[2].a + hn[3].rgb * hn[3].a) * EMAX;
+  vec3 ringCol = mix(phos * (0.06 + 0.13 * u_level),
+                     sumRgb * (0.5 + 0.5 * u_level), occupied);
+  col += ringCol * ringGlow;
+
+  // --- semitone tick marks at a fixed radius on the same spokes (trails
+  // pass beneath them); arcDist reuses the spoke section's distance field
+  float tickBand = smoothstep(0.0, 0.004, r - (RT + 0.012))
+                 * smoothstep(0.0, 0.004, (RT + 0.028) - r);
+  col += phos * exp(-arcDist * arcDist * 2.0e5) * tickBand * 0.55;
+
+  // hue-preserving limiter: when additive buildup pushes any channel past
+  // the shoulder, compress the whole color by its max channel so dense
+  // passages read brighter and more saturated instead of washing to white
+  float peak = max(col.r, max(col.g, col.b));
+  if (peak > 0.82) {
+    col *= (0.82 + 0.18 * (1.0 - exp((0.82 - peak) / 0.18))) / peak;
+  }
+
+  // grain + vignette (kept gentle so far-flung trails survive to the corners)
+  col *= 1.0 - 0.22 * smoothstep(0.75, 1.45, r);
+  col += (hash(uv * 711.0 + fract(u_time)) - 0.5) * 0.025;
+
+  gl_FragColor = vec4(col, 1.0);
+}
+`;
+
+function compile(type, src) {
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src);
+  gl.compileShader(sh);
+  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+    throw new Error(gl.getShaderInfoLog(sh));
+  }
+  return sh;
+}
+
+const prog = gl.createProgram();
+gl.attachShader(prog, compile(gl.VERTEX_SHADER, VERT));
+gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FRAG));
+gl.linkProgram(prog);
+if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+  throw new Error(gl.getProgramInfoLog(prog));
+}
+gl.useProgram(prog);
+
+const quad = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+const locP = gl.getAttribLocation(prog, 'p');
+gl.enableVertexAttribArray(locP);
+gl.vertexAttribPointer(locP, 2, gl.FLOAT, false, 0, 0);
+
+const U = {};
+for (const name of ['u_res', 'u_time', 'u_level', 'u_beat', 'u_hist', 'u_rim']) {
+  U[name] = gl.getUniformLocation(prog, name);
+}
+
+/* pitch-class history: ANG angular bins x HIST_ROWS rows x NREG register
+   bands of CPU-side ring buffers (~5 s of emissions). Every frame they are
+   rasterized into the radial trail map texture (ANG*AOS x RBINS per band,
+   bands stacked vertically): each history row lands at the radius its own
+   stored amplitude has carried it to, so ejection speed is amplitude-driven -
+   loud rows fly for the screen corners, quiet rows linger near the ring, and
+   a loud row simply overtakes older quiet material. The texture is angularly
+   supersampled AOS x over the analysis bins, with per-row GEOMETRY (radius,
+   energy, color) lerped between adjacent history columns at raster time:
+   GPU filtering can only crossfade intensities at a fixed radius, which turns
+   neighboring tips at different radii into rectangular teeth, while lerping
+   the radii themselves slopes the tip boundary smoothly between columns.
+   Both texture dimensions stay power-of-two so REPEAT wrap in S (the pitch
+   circle) works in WebGL1. ANG, AOS and ANG_TEX are declared above FRAG,
+   which bakes ANG_TEX in as its ANGC constant. */
+const HIST_ROWS = 256;
+const NREG = 4;                             // register bands, ~2.5 octaves each
+const RBINS = 256;                          // radial bins per band in the trail map
+const TRAIL_SECONDS = 5;
+const ROW_DT = TRAIL_SECONDS / HIST_ROWS;   // ~19.5 ms per row
+let histHead = 0;
+let lastRowAt = 0;
+
+// ring buffers laid out (band, angle, row) so the per-angle raster walk is
+// contiguous; energy snaps to exact zero below a floor so silent columns are
+// cheap to skip (colCount tracks nonzero rows per column)
+const histE = new Float32Array(NREG * ANG * HIST_ROWS);
+const histS = new Float32Array(NREG * ANG * HIST_ROWS); // smoothed speed amplitude
+const histR = new Float32Array(NREG * ANG * HIST_ROWS);
+const histG = new Float32Array(NREG * ANG * HIST_ROWS);
+const histB = new Float32Array(NREG * ANG * HIST_ROWS);
+const colCount = new Uint16Array(NREG * ANG);
+
+const histTex = gl.createTexture();
+gl.activeTexture(gl.TEXTURE0);
+gl.bindTexture(gl.TEXTURE_2D, histTex);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, ANG_TEX, RBINS * NREG, 0,
+  gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(ANG_TEX * RBINS * NREG * 4));
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+gl.uniform1i(U.u_hist, 0);
+
+/* rim color texture: ANG x RIMT luminance, row t = the register (0..1 over
+   20 Hz..20 kHz) found at stack fraction (t + 0.5) / RIMT of the angle's
+   live energy - the inverse CDF of that angle's register distribution. The
+   shader colors the rim stack by sampling this at its normalized height, so
+   color glides continuously through the register ramp with exactly each
+   register's energy share of the stack. Tiny (16 KB), re-uploaded every
+   frame; initialized to the identity ramp so untouched angles show the full
+   spectrum. Lives on unit 1 so the raster's texSubImage2D calls on unit 0
+   never touch it. */
+const rimPix = new Uint8Array(RIMT * ANG);
+for (let t = 0; t < RIMT; t++) {
+  rimPix.fill((t + 0.5) / RIMT * 255 + 0.5, t * ANG, (t + 1) * ANG);
+}
+const rimTex = gl.createTexture();
+gl.activeTexture(gl.TEXTURE1);
+gl.bindTexture(gl.TEXTURE_2D, rimTex);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, ANG, RIMT, 0,
+  gl.LUMINANCE, gl.UNSIGNED_BYTE, rimPix);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+gl.uniform1i(U.u_rim, 1);
+gl.activeTexture(gl.TEXTURE0);
+
+/* ------------------------------------------ amplitude-driven trail raster
+   Maps each history row to its current radius. Speed is a function of the
+   row's own stored amplitude (loud shoots, quiet lingers); radius follows a
+   concave warp of age (launch fast off the rim, decelerate outward) and the
+   field spans rim -> past the farthest screen corner (xr 0..1, see rOut in
+   the shader). The fastest full-scale rows cross the entire window and exit
+   before they have fully faded. Speed reads the angularly SMOOTHED copy of
+   the amplitude (histS, written at push time) while brightness keeps the
+   raw deposit, so all the columns of one note's footprint travel as a
+   coherent sheet instead of shearing into ragged per-column chevrons. */
+const SPD_MIN = 0.15;   // radial speed of near-silent rows
+const SPD_MAX = 1.25;   // radial speed of full-scale rows
+const TIP_FEATHER = 4.0; // bins of falloff past each column's leading edge
+const E_MAX = 2.0;      // display-energy ceiling (shader EMAX); the trail
+                        // texture stores sqrt(v / E_MAX) so the u8 channel
+                        // carries the headroom without losing the low end
+
+// half-saturation sits near the AGC reference level (~0.8) so the
+// loud-fundamental headroom above it still buys extra speed
+function rowSpeed(s) {
+  const s3 = s * s * s;
+  return SPD_MIN + (SPD_MAX - SPD_MIN) * s3 / (s3 + 0.25);
+}
+
+const warpLut = new Float32Array(HIST_ROWS);  // age01^(1/2.2): concave radius warp
+const fadeLut = new Float32Array(HIST_ROWS);  // gentle fade; rows die at max age
+for (let k = 0; k < HIST_ROWS; k++) {
+  const age01 = k / (HIST_ROWS - 1);
+  warpLut[k] = Math.pow(age01, 1 / 2.2);
+  fadeLut[k] = Math.pow(1 - age01, 1.25);
+}
+
+const segX = new Float32Array(HIST_ROWS);     // scratch: radius per row (in bins)
+const segV = new Float32Array(HIST_ROWS);     //   faded energy per row
+const segR = new Float32Array(HIST_ROWS);     //   premultiplied color per row
+const segG = new Float32Array(HIST_ROWS);
+const segB = new Float32Array(HIST_ROWS);
+const radCol = new Float32Array(RBINS * 4);   // scratch: one angle's radial column
+const radPix = new Uint8Array(ANG_TEX * RBINS * NREG * 4);  // full texture staging
+const radHi = new Uint16Array(NREG * ANG_TEX);  // bins lit in the staging column
+let radTouched = true;
+
+// per-band geometry scratch for the angular supersample: every history row of
+// every live (or live-adjacent) column placed at its current radius, so the
+// subcolumn pass can lerp row-wise between neighbors
+const geomX = new Float32Array(ANG * HIST_ROWS);
+const geomV = new Float32Array(ANG * HIST_ROWS);
+const geomR = new Float32Array(ANG * HIST_ROWS);
+const geomG = new Float32Array(ANG * HIST_ROWS);
+const geomB = new Float32Array(ANG * HIST_ROWS);
+const colNeed = new Uint8Array(ANG);
+const colLive = new Uint8Array(ANG);
+
+/* Rasterize the ring buffers into the radial trail map, in two passes per
+   band. Pass 1 places every history row of every live (or live-adjacent)
+   column at its current radius. Pass 2 walks the AOS-supersampled texture
+   columns: each subcolumn lerps row-wise (same age k) between its two
+   flanking history columns - radius, energy and color together - then joins
+   consecutive rows into radial segments; where segments overlap - a loud row
+   overtaking older quiet material - the brighter one wins. Lerping the
+   geometry makes the trail tip a sloped contour between columns instead of
+   the rectangular teeth that intensity crossfade produced. Work per column
+   is bounded by its radial extent (radHi), so quiet columns that never leave
+   the rim's neighborhood stay cheap, and fully dark stretches of the circle
+   are skipped outright. */
+function rasterTrails() {
+  const am = ANG - 1;
+  for (let jr = 0; jr < NREG; jr++) {
+    const cbase = jr * ANG;
+    for (let a = 0; a < ANG; a++) {
+      colNeed[a] = (colCount[cbase + a] || colCount[cbase + ((a - 1) & am)]
+                 || colCount[cbase + ((a + 1) & am)]) ? 1 : 0;
+    }
+    for (let a = 0; a < ANG; a++) {
+      colLive[a] = 0;
+      if (!colNeed[a]) continue;
+      const hbase = (cbase + a) * HIST_ROWS;
+      const sbase = a * HIST_ROWS;
+      let row = histHead, any = false;
+      for (let k = 0; k < HIST_ROWS; k++) {
+        const o = hbase + row;
+        row = row === 0 ? HIST_ROWS - 1 : row - 1;
+        // dead rows still sit at their own speed-field radius so the lerp
+        // toward a live neighbor curves the tip down instead of stretching it
+        geomX[sbase + k] = rowSpeed(histS[o]) * warpLut[k] * (RBINS - 1);
+        const v = histE[o] * fadeLut[k];
+        // cutoff sits where the encode-time contrast knee has already sunk
+        // the value into the backdrop, so dropped rows are invisible
+        if (v > 0.016) {
+          geomV[sbase + k] = v;
+          geomR[sbase + k] = histR[o] * v;
+          geomG[sbase + k] = histG[o] * v;
+          geomB[sbase + k] = histB[o] * v;
+          any = true;
+        } else {
+          geomV[sbase + k] = 0;
+          geomR[sbase + k] = geomG[sbase + k] = geomB[sbase + k] = 0;
+        }
+      }
+      if (any) colLive[a] = 1;
+    }
+    for (let s = 0; s < ANG_TEX; s++) {
+      const li = jr * ANG_TEX + s;
+      const prevHi = radHi[li];
+      const pCol = (s + 0.5) / AOS;    // texel center in history-column units
+      const a0 = Math.floor(pCol) & am;
+      const a1 = (a0 + 1) & am;
+      if (!colLive[a0] && !colLive[a1]) {
+        if (prevHi > 0) {       // column just went dark: zero its texels once
+          radHi[li] = 0;
+          radTouched = true;
+          for (let b = 0; b < prevHi; b++) {
+            const dst = (((jr * RBINS + b) * ANG_TEX) + s) * 4;
+            radPix[dst] = radPix[dst + 1] = radPix[dst + 2] = radPix[dst + 3] = 0;
+          }
+        }
+        continue;
+      }
+      const tt = pCol - Math.floor(pCol);
+      const bA = a0 * HIST_ROWS, bB = a1 * HIST_ROWS;
+      let hiX = 0, tipK = -1, any = false;
+      for (let k = 0; k < HIST_ROWS; k++) {
+        const xA = geomX[bA + k];
+        const x = xA + (geomX[bB + k] - xA) * tt;
+        const vA = geomV[bA + k];
+        const v = vA + (geomV[bB + k] - vA) * tt;
+        segX[k] = x;
+        if (v > 1e-4) {
+          segV[k] = v;
+          const rA = geomR[bA + k], gA = geomG[bA + k], bbA = geomB[bA + k];
+          segR[k] = rA + (geomR[bB + k] - rA) * tt;
+          segG[k] = gA + (geomG[bB + k] - gA) * tt;
+          segB[k] = bbA + (geomB[bB + k] - bbA) * tt;
+          if (x > hiX) { hiX = x; tipK = k; }
+          any = true;
+        } else {
+          segV[k] = segR[k] = segG[k] = segB[k] = 0;
+        }
+      }
+      const hi = any ? Math.min(Math.round(hiX + TIP_FEATHER) + 1, RBINS - 1) : 0;
+      if (!any && prevHi === 0) continue;
+      radTouched = true;
+      for (let b = 0; b <= hi; b++) {
+        const ci = b * 4;
+        radCol[ci] = radCol[ci + 1] = radCol[ci + 2] = radCol[ci + 3] = 0;
+      }
+      for (let k = 0; k + 1 < HIST_ROWS; k++) {
+        const vA = segV[k], vB = segV[k + 1];
+        if (vA <= 0 && vB <= 0) continue;
+        const xA = segX[k], xB = segX[k + 1];
+        let b0 = Math.round(Math.min(xA, xB));
+        let b1 = Math.round(Math.max(xA, xB));
+        if (b0 < 0) b0 = 0;
+        if (b1 > hi) b1 = hi;
+        const dx = xB - xA;
+        const inv = Math.abs(dx) > 1e-6 ? 1 / dx : 0;
+        const dv = vB - vA;
+        const dR = segR[k + 1] - segR[k];
+        const dG = segG[k + 1] - segG[k];
+        const dB = segB[k + 1] - segB[k];
+        for (let b = b0; b <= b1; b++) {
+          let t = (b - xA) * inv;
+          if (t < 0) t = 0; else if (t > 1) t = 1;
+          const v = vA + dv * t;
+          const ci = b * 4;
+          if (v > radCol[ci + 3]) {
+            radCol[ci + 3] = v;
+            radCol[ci]     = segR[k] + dR * t;
+            radCol[ci + 1] = segG[k] + dG * t;
+            radCol[ci + 2] = segB[k] + dB * t;
+          }
+        }
+      }
+      // feather the leading edge: without it the tip cliff-drops inside one
+      // texel, and adjacent columns' tips landing in different bins read as
+      // blocky teeth; a short quadratic falloff past the true (fractional)
+      // tip radius gives the angular filter a ramp it can blend smoothly
+      if (tipK >= 0) {
+        const tv = segV[tipK];
+        const pr = segR[tipK] / tv, pg = segG[tipK] / tv, pb = segB[tipK] / tv;
+        for (let b = Math.max(0, Math.ceil(hiX)); b <= hi; b++) {
+          const t = (b - hiX) / TIP_FEATHER;
+          if (t <= 0) continue;
+          if (t >= 1) break;
+          // gentler than the old quadratic: the encode knee cubes the faint
+          // end, so a flatter ramp here is what survives as a smooth fade
+          const v = tv * (1 - t) * Math.sqrt(1 - t);
+          const ci = b * 4;
+          if (v > radCol[ci + 3]) {
+            radCol[ci + 3] = v;
+            radCol[ci] = pr * v; radCol[ci + 1] = pg * v; radCol[ci + 2] = pb * v;
+          }
+        }
+      }
+      // quantize the lit span (alpha sqrt-encoded against E_MAX, rgb
+      // re-premultiplied by the encoded alpha so the shader's rgb/a still
+      // recovers the pure color); zero any bins the column lit last time
+      // but no longer reaches
+      const top = Math.max(hi, prevHi);
+      for (let b = 0; b <= top; b++) {
+        const dst = (((jr * RBINS + b) * ANG_TEX) + s) * 4;
+        const v = b <= hi ? radCol[b * 4 + 3] : 0;
+        if (v > 1e-6) {
+          const ci = b * 4;
+          // contrast knee, moved here from the shader so it lands before
+          // texture filtering: faint inter-note haze still sinks toward the
+          // backdrop, but the B-spline's soft angular ramps reach the screen
+          // un-resharpened. Bin 0 stays raw - the rim stack reads it as the
+          // live energy histogram and must keep exact register proportions.
+          const vk = b === 0 ? v : v * v * v / (v * v + 0.02);
+          const aEnc = Math.min(Math.sqrt(vk / E_MAX), 1);
+          const cs = aEnc / v * 255;
+          radPix[dst]     = Math.min(255, radCol[ci]     * cs) | 0;
+          radPix[dst + 1] = Math.min(255, radCol[ci + 1] * cs) | 0;
+          radPix[dst + 2] = Math.min(255, radCol[ci + 2] * cs) | 0;
+          radPix[dst + 3] = (aEnc * 255) | 0;
+        } else {
+          radPix[dst] = radPix[dst + 1] = radPix[dst + 2] = radPix[dst + 3] = 0;
+        }
+      }
+      radHi[li] = hi;
+    }
+  }
+  if (radTouched) {
+    radTouched = false;
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, ANG_TEX, RBINS * NREG,
+      gl.RGBA, gl.UNSIGNED_BYTE, radPix);
+  }
+}
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = Math.round(innerWidth * dpr), h = Math.round(innerHeight * dpr);
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
+    gl.viewport(0, 0, w, h);
+  }
+}
+
+/* ------------------------------------------------------- Chroma analysis */
+
+const state = {
+  mode: 'sim',          // 'sim' (idle) | 'local' | 'mic'
+  level: 0,             // smoothed 0..1
+  beat: 0,              // beat pulse envelope, decays each frame
+};
+
+// per-frame accumulators, written by liveFrame or simFrame, kept separate
+// per register band (index = band * ANG + angularBin) so simultaneous
+// octaves of one pitch class survive to the renderer as distinct layers
+// (rim stack + per-band trails; trail SPEED is amplitude-driven in the
+// shader, register lives in the stack position and color) instead of being
+// averaged into one color. Within a band, colors still accumulate in RGB
+// (weights mildly compressed, see REG_GAMMA) so the register hue survives.
+// angRim is the rim's finer-grained register histogram (RIM_REGS bins,
+// register-major), folded from the same deposits, whose inverse CDF colors
+// the stack continuously instead of in band-sized slabs.
+const angEnergy = new Float32Array(NREG * ANG); // energy per band per angular bin
+const angR = new Float32Array(NREG * ANG);      // weighted color sums per bin
+const angG = new Float32Array(NREG * ANG);
+const angB = new Float32Array(NREG * ANG);
+const angRim = new Float32Array(RIM_REGS * ANG); // fine register histogram
+const angW = new Float32Array(NREG * ANG);      // total color weight, for normalization
+const angTot = new Float32Array(ANG);           // per-angle sum over bands, for the AGC
+
+// smoothed display state, same band-major layout
+const dispE = new Float32Array(NREG * ANG);
+const dispR = new Float32Array(NREG * ANG);
+const dispG = new Float32Array(NREG * ANG);
+const dispB = new Float32Array(NREG * ANG);
+const dispRim = new Float32Array(RIM_REGS * ANG); // smoothed; inverted into rimPix
+const rowPeakE = new Float32Array(NREG * ANG);  // per-row peak hold of the display state
+const rowPeakR = new Float32Array(NREG * ANG);
+const rowPeakG = new Float32Array(NREG * ANG);
+const rowPeakB = new Float32Array(NREG * ANG);
+const chromaRaw = new Float32Array(12);   // 12-bin chroma for chord detection
+const chroma = new Float32Array(12);
+const agcScratch = new Float32Array(ANG); // sorted copy for the percentile AGC
+let angRef = 2e-4;                        // loudness reference for the wheel bins
+let totalAgc = 1e-9, bassAgc = 1e-9, chromaAgc = 1e-6;
+let bassAvg = 0, lastBeatAt = 0;
+
+/* register -> sRGB lookup, the CPU-side twin of the shader's old freqColor:
+   Oklch hue advances about 60 degrees per octave so absolute register is
+   readable without fighting angular pitch class; lightness climbs the whole
+   20 Hz..20 kHz axis (dark bass -> near-white air band) while chroma peaks
+   around common musical fundamentals (~C4), so mids burn fully saturated,
+   bass reads dark and moody, and overtones wash toward pale sparkle.
+   256 steps over ~10 octaves is far finer than the texture can resolve, so
+   nothing reads as quantized. */
+function oklchToSrgb(L, C, h) {
+  const a = C * Math.cos(h), b = C * Math.sin(h);
+  let l = L + 0.3963377774 * a + 0.2158037573 * b;
+  let m = L - 0.1055613458 * a - 0.0638541728 * b;
+  let s = L - 0.0894841775 * a - 1.2914855480 * b;
+  l = l * l * l; m = m * m * m; s = s * s * s;
+  return [
+     4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
+  ].map((v) => Math.pow(Math.min(Math.max(v, 0), 1), 0.4545));
+}
+
+const REG_STEPS = 256;
+const REG_LUT = new Float32Array(REG_STEPS * 3);
+for (let i = 0; i < REG_STEPS; i++) {
+  const reg = i / (REG_STEPS - 1);
+  const oct = reg * OCT_SPAN;
+  const h = (24 + oct * 60) * Math.PI / 180;  // ~60 degrees per octave
+  const t = (reg - 0.37) / 0.30;   // chroma peak: 0.37 ~ 260 Hz (around C4)
+  const c = oklchToSrgb(0.30 + 0.63 * reg, 0.05 + 0.145 * Math.exp(-t * t), h);
+  REG_LUT[i * 3] = c[0]; REG_LUT[i * 3 + 1] = c[1]; REG_LUT[i * 3 + 2] = c[2];
+}
+
+// color weights are compressed (w^REG_GAMMA) so a quieter octave doubling
+// still tints the mix instead of vanishing under a dominant register
+const REG_GAMMA = 0.7;
+
+function regLutIndex(o) {
+  return ((o * (REG_STEPS - 1)) | 0) * 3;
+}
+
+// which of the NREG rim/trail bands a register belongs to
+function regBand(o) {
+  return Math.min(NREG - 1, (o * NREG) | 0);
+}
+
+/* shared by mic and local modes: fold a real FFT onto the pitch-class circle.
+   angle = fract(log2(f / 440)) so 0 = A; each bin also deposits its register
+   color into the RGB accumulators so stacked octaves layer.
+   For chord chroma we keep only local spectral peaks below ~2.2 kHz and
+   compress with sqrt, discounting highs - a cheap stand-in for proper
+   harmonic-overtone suppression.
+
+   Dual-resolution: a long FFT (16384, ~2.9 Hz bins) folds the band below
+   SPLIT_HZ, where neighboring semitones are only a few Hz apart, and a short
+   FFT (4096, ~85 ms window) folds the highs and feeds the beat detector, so
+   transients stay snappy while the low end resolves cleanly.
+
+   Between FFT and fold sits an optional DSP stage (see the dsp panel): with
+   every knob at zero (the Raw preset) the magnitudes pass through untouched,
+   leaving the raw folded spectrum; the Melodic preset is the default. The
+   phon-weight knob is an A-weighting-ish equal-loudness tilt, useful when
+   raw energy is not what ears hear. */
+const SPLIT_HZ = 1000;
+
+function foldBand(b) {
+  const { mag, hz, i0, i1 } = b;
+  let total = 0;
+  for (let i = i0; i <= i1; i++) {
+    const m = mag[i];
+    if (m <= 0) continue;
+    const f = i * hz;
+    total += m;
+
+    const lg = Math.log2(f / 440);
+    const frac = lg - Math.floor(lg);
+    const x = frac * ANG;
+    const o = Math.min(Math.max(Math.log2(f / F_LO) / OCT_SPAN, 0), 1);
+    const li = regLutIndex(o);
+    const cr = REG_LUT[li], cg = REG_LUT[li + 1], cb = REG_LUT[li + 2];
+    const ro = regBand(o) * ANG;
+    const rr = Math.min(RIM_REGS - 1, (o * RIM_REGS) | 0) * ANG;
+    const cmag = Math.pow(m, REG_GAMMA);
+    // paint the bin over its true angular footprint: low bins are wide on a
+    // log axis (smooth arcs instead of comb teeth), high bins stay thin.
+    // The 0.9-bin floor keeps even the thinnest deposit properly sampled
+    // across angular columns so trails read continuous, not columnar.
+    const sig = Math.max(0.9, Math.log2((f + hz) / f) * ANG * 0.5);
+    const rad = Math.min(Math.ceil(sig * 2.5), 96);
+    const base = Math.round(x);
+    const inv2s2 = 1 / (2 * sig * sig);
+    const norm = 1 / (sig * 2.50662827);   // Gaussian area, keeps energy mass exact
+    for (let d = -rad; d <= rad; d++) {
+      const ai = ((base + d) % ANG + ANG) % ANG;
+      const a = ai + ro;
+      const dd = base + d - x;
+      const g = Math.exp(-dd * dd * inv2s2) * norm;
+      angEnergy[a] += m * g;
+      angRim[rr + ai] += m * g;
+      const cw = cmag * g;
+      angR[a] += cw * cr; angG[a] += cw * cg; angB[a] += cw * cb;
+      angW[a] += cw;
+    }
+
+    // 3.2e-4 is the old -70 dB peak threshold in linear magnitude
+    if (f < 2200 && m > mag[i - 1] && m >= mag[i + 1] && m > 3.2e-4) {
+      const pc = Math.round(frac * 12) % 12;
+      chromaRaw[pc] += Math.sqrt(m) * (1 - 0.35 * o);
+    }
+  }
+  return total;
+}
+
+/* ------------------------------------------- optional DSP postprocessing
+   Six independent layers between FFT and fold, all knob-controlled. The
+   Melodic preset is the page-load default; the Raw preset zeroes every knob,
+   which makes the whole stage a no-op (untouched folded spectrum). They run
+   on the linear magnitude arrays per band, every pass O(bins), so the whole
+   stage costs a small fraction of the fold itself. Order: drum cut (needs
+   raw temporal stats) -> phon weight -> gate -> whiten -> overtone cut ->
+   peak focus. */
+
+const DSP_PRESETS = {
+  raw:     { overtone: 0,    whiten: 0,    phon: 0,    focus: 0,    gate: 0,    drums: 0 },
+  // overtone sits low: the stacked rim histogram already separates
+  // octaves visually, and harmonics of a strong bassline carry register
+  // info worth seeing rather than suppressing
+  melodic: { overtone: 0.35, whiten: 0.35, phon: 0.35, focus: 0.3,  gate: 0.25, drums: 0.3 },
+};
+
+const dsp = Object.assign({}, DSP_PRESETS.melodic);
+
+function dspActive() {
+  return dsp.overtone > 0 || dsp.whiten > 0 || dsp.phon > 0 || dsp.focus > 0
+      || dsp.gate > 0 || dsp.drums > 0;
+}
+
+// dB -> linear magnitude over a band's used range (plus one guard bin each
+// side for the peak tests); bins under the -85 dB floor become exact zeros.
+// Returns the band's total magnitude, which feeds the makeup-gain tracker.
+function toMag(db, mag, i0, i1) {
+  let total = 0;
+  for (let i = i0 - 1; i <= i1 + 1; i++) {
+    const d = db[i];
+    const m = d < -85 ? 0 : Math.pow(10, d / 20);
+    mag[i] = m;
+    if (i >= i0 && i <= i1) total += m;
+  }
+  return total;
+}
+
+// A-weighting-style amplitude gain, normalized near its 1 kHz reference. This
+// is not a calibrated SPL meter; it is an optional perceptual tilt for the
+// visual energy units.
+function aWeightGain(f) {
+  const f2 = f * f;
+  const ra = (12200 * 12200 * f2 * f2)
+    / ((f2 + 20.6 * 20.6)
+    * Math.sqrt((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9))
+    * (f2 + 12200 * 12200));
+  const db = 20 * Math.log10(Math.max(ra, 1e-12)) + 2.0;
+  return Math.pow(10, db / 20);
+}
+
+/* constant-Q-ish envelope: forward+backward one-pole whose window grows
+   proportionally with bin index (frac of center frequency), floored at wMin */
+function smoothEnvCQ(mag, env, i0, i1, frac, wMin) {
+  let acc = mag[i0];
+  for (let i = i0; i <= i1; i++) {
+    acc += (mag[i] - acc) / Math.max(frac * i, wMin);
+    env[i] = acc;
+  }
+  acc = env[i1];
+  for (let i = i1; i >= i0; i--) {
+    acc += (env[i] - acc) / Math.max(frac * i, wMin);
+    env[i] = acc;
+  }
+}
+
+/* overtone suppression: every local spectral peak is a candidate fundamental,
+   processed in ascending frequency; energy near its integer multiples is
+   attenuated by however much of that harmonic the fundamental can explain
+   (cap falls off as k^0.6). Because lower fundamentals are handled first,
+   a harmonic that gets cut down explains less of ITS multiples in turn. */
+const PEAK_CAP = 80;
+const peakIdx = new Int32Array(PEAK_CAP);
+const peakBand = new Uint8Array(PEAK_CAP);
+
+function suppressOvertones(bands, fmax) {
+  const floor = fmax * 0.004;   // ~-48 dB below frame peak
+  if (floor <= 0) return;
+  let np = 0;
+  for (let bi = 0; bi < 2 && np < PEAK_CAP; bi++) {
+    const { mag, i0, i1 } = bands[bi];
+    for (let i = i0; i <= i1 && np < PEAK_CAP; i++) {
+      const m = mag[i];
+      if (m > floor && m > mag[i - 1] && m >= mag[i + 1]) {
+        peakIdx[np] = i; peakBand[np] = bi; np++;
+      }
+    }
+  }
+  const amt = dsp.overtone;
+  for (let p = 0; p < np; p++) {
+    const b = bands[peakBand[p]];
+    const i = peakIdx[p];
+    const mf = b.mag[i];          // current value: may itself have been cut
+    if (mf <= 0) continue;
+    const f = i * b.hz;
+    for (let k = 2; k <= 12; k++) {
+      const fk = f * k;
+      if (fk > F_HI) break;
+      const tb = fk < SPLIT_HZ ? bands[0] : bands[1];
+      const ci = Math.round(fk / tb.hz);
+      // tolerance window for stretch/inharmonicity, ~0.8% of the harmonic
+      const tol = Math.min(Math.max(fk * 0.008 / tb.hz, 1.5), 8);
+      const r = Math.ceil(tol);
+      if (ci + r < tb.i0 || ci - r > tb.i1) continue;
+      const cap = mf / Math.pow(k, 0.6);
+      const inv = 1 / (2 * tol * tol);
+      for (let d = -r; d <= r; d++) {
+        const j = ci + d;
+        if (j < tb.i0 || j > tb.i1) continue;
+        const mh = tb.mag[j];
+        if (mh <= 0) continue;
+        const conf = Math.min(cap / mh, 1);
+        tb.mag[j] = mh * (1 - amt * conf * Math.exp(-d * d * inv));
+      }
+    }
+  }
+}
+
+function dspApply(ana, dt) {
+  const bands = ana.bands;
+
+  // drum cut: bins jumping far above their own ~300 ms average get pulled
+  // back toward it - broadband attacks (kicks, snares) fade, held notes pass.
+  // The EMA always tracks the RAW magnitudes so the stats stay honest.
+  const emaK = 1 - Math.exp(-dt / 0.3);
+  for (const b of bands) {
+    const { mag, ema, i0, i1 } = b;
+    for (let i = i0; i <= i1; i++) {
+      const m = mag[i], e = ema[i];
+      if (dsp.drums > 0 && m > e * 1.8) {
+        mag[i] = m * Math.pow((e * 1.8 + 1e-12) / m, dsp.drums);
+      }
+      ema[i] = e + (m - e) * emaK;
+    }
+  }
+
+  // phon weighting: morph from raw magnitude to A-weighted perceived loudness.
+  // Clamp the gain so this remains a musical visualizer, not a punishment for
+  // basslines.
+  if (dsp.phon > 0) {
+    for (const b of bands) {
+      const { mag, phon, i0, i1 } = b;
+      for (let i = i0; i <= i1; i++) {
+        mag[i] *= Math.pow(Math.min(Math.max(phon[i], 0.06), 1.25), dsp.phon);
+      }
+    }
+  }
+
+  // frame peak across both bands, shared by gate and overtone cut
+  let fmax = 0;
+  for (const b of bands) {
+    for (let i = b.i0; i <= b.i1; i++) if (b.mag[i] > fmax) fmax = b.mag[i];
+  }
+
+  // soft noise gate: knob maps the knee from -72 dB to -32 dB below frame peak
+  if (dsp.gate > 0 && fmax > 0) {
+    const thr = fmax * Math.pow(10, (-72 + 40 * dsp.gate) / 20);
+    const t2 = thr * thr;
+    for (const b of bands) {
+      const { mag } = b;
+      for (let i = b.i0; i <= b.i1; i++) {
+        const m2 = mag[i] * mag[i];
+        mag[i] *= m2 / (m2 + t2);
+      }
+    }
+  }
+
+  // whitening: divide by a ~half-octave-wide envelope so the broadband tilt
+  // flattens; boost capped at 6x so the noise floor can't take over
+  if (dsp.whiten > 0) {
+    let ref = 0, cnt = 0;
+    for (const b of bands) {
+      smoothEnvCQ(b.mag, b.env, b.i0, b.i1, 0.5, 8);
+      for (let i = b.i0; i <= b.i1; i++) ref += b.env[i];
+      cnt += b.i1 - b.i0 + 1;
+    }
+    ref = ref / cnt + 1e-12;
+    for (const b of bands) {
+      const { mag, env } = b;
+      for (let i = b.i0; i <= b.i1; i++) {
+        const g = Math.pow(ref / (env[i] + 0.05 * ref), dsp.whiten);
+        mag[i] *= Math.min(g, 6);
+      }
+    }
+  }
+
+  if (dsp.overtone > 0) suppressOvertones(bands, fmax);
+
+  // peak focus: spectral contrast against a ~semitone-wide local mean -
+  // peaks rise, the smear between them sinks
+  if (dsp.focus > 0) {
+    for (const b of bands) {
+      smoothEnvCQ(b.mag, b.env, b.i0, b.i1, 0.06, 4);
+      const { mag, env } = b;
+      for (let i = b.i0; i <= b.i1; i++) {
+        if (env[i] <= 0) continue;
+        const g = Math.pow(mag[i] / env[i], dsp.focus * 1.5);
+        mag[i] *= Math.min(g, 4);
+      }
+    }
+  }
+}
+
+/* ---------------------------------------------------- adaptive makeup gain
+   Upstream of the DSP stage and fold: when the source runs quiet, the linear
+   magnitudes are multiplied by up to MAKEUP_MAX_MIC (10x, +20 dB) so soft
+   material - quiet speech into a laptop mic, a hushed passage - still reaches
+   the wheel's working range (the per-angle AGC's absolute gate and the chord
+   detector's peak threshold are both fixed in post-gain units). Two guards
+   keep this from normalizing silence: the boost is a hard cap, never "scale
+   to full", and it is only granted to signal standing clear of a tracked
+   noise-floor estimate - inside the floor the gain fades back to unity, so
+   hiss and room tone stay subdued. Mic mode gets the full 10x; file playback
+   (already mastered, and per-track-normalized in the CQT sidecars) gets a
+   milder ceiling for quiet passages only. */
+const MAKEUP_MAX_MIC = 10;    // +20 dB
+const MAKEUP_MAX_FILE = 4;    // +12 dB
+const MAKEUP_TARGET = 1.0;    // raw spectral total the wheel's tuning assumes
+let makeupEnv = 0;            // loudness envelope: fast attack, slow release
+let makeupNoise = 1;          // noise-floor estimate; starts high, falls fast
+let makeupGain = 1;
+
+function updateMakeup(total, dt, maxGain) {
+  makeupEnv += (total - makeupEnv)
+    * (1 - Math.exp(-dt / (total > makeupEnv ? 0.06 : 2.0)));
+  // floor tracker on the raw per-frame total: falls quickly to meet quiet
+  // frames, creeps up very slowly, so the dips between words and phrases
+  // keep re-anchoring it to the hiss rather than the phrases themselves
+  makeupNoise += (total - makeupNoise)
+    * (1 - Math.exp(-dt / (total < makeupNoise ? 0.4 : 30)));
+  let g = Math.min(Math.max(MAKEUP_TARGET / Math.max(makeupEnv, 1e-6), 1), maxGain);
+  // boost is earned by clearing the noise floor: full strength ~10 dB above
+  // the floor estimate, falling off steeply inside it (steady signal AT the
+  // floor - i.e. the hiss itself - lands within ~10% of unity)
+  const snr = makeupEnv / (3 * Math.max(makeupNoise, 1e-6));
+  if (snr < 1) g = 1 + (g - 1) * snr * snr * snr * snr;
+  // gain reductions land faster than increases so a sudden blast after a
+  // quiet stretch doesn't ride the old boost for long
+  makeupGain += (g - makeupGain)
+    * (1 - Math.exp(-dt / (g < makeupGain ? 0.15 : 0.6)));
+  return makeupGain;
+}
+
+/* level AGC + bass beat detection, shared by the live and cqt frame paths */
+function trackEnergy(total, bass, now) {
+  // level via slow auto-gain so any source loudness maps to 0..1
+  totalAgc = Math.max(totalAgc * 0.995, total, 1e-9);
+  state.level += (Math.min(total / totalAgc * 1.1, 1) - state.level) * 0.12;
+
+  // beat detection: bass energy vs its running average
+  bassAgc = Math.max(bassAgc * 0.995, bass, 1e-9);
+  bassAvg += (bass - bassAvg) * 0.04;
+  if (bass > bassAvg * 1.35 && bass > 0.2 * bassAgc && now - lastBeatAt > 0.24) {
+    state.beat = 1;
+    lastBeatAt = now;
+  }
+}
+
+function liveFrame(ana, now) {
+  const dt = Math.min(Math.max(now - ana.lastT, 0.001), 0.1);
+  ana.lastT = now;
+  ana.harm.getFloatFrequencyData(ana.harmData);
+  ana.fast.getFloatFrequencyData(ana.fastData);
+  angEnergy.fill(0); angR.fill(0); angG.fill(0); angB.fill(0); angRim.fill(0); angW.fill(0);
+  chromaRaw.fill(0);
+
+  let raw = 0;
+  for (const b of ana.bands) raw += toMag(b.data, b.mag, b.i0, b.i1);
+  const g = updateMakeup(raw, dt,
+    state.mode === 'mic' ? MAKEUP_MAX_MIC : MAKEUP_MAX_FILE);
+  if (g > 1.001) {
+    for (const b of ana.bands) {
+      for (let i = b.i0 - 1; i <= b.i1 + 1; i++) b.mag[i] *= g;
+    }
+  }
+  if (dspActive()) dspApply(ana, dt);
+  let total = foldBand(ana.bands[0]) + foldBand(ana.bands[1]);
+
+  // bass for the beat detector comes off the short FFT so kicks register
+  // within a frame or two instead of smeared across the long window;
+  // it reads the raw dB data so the DSP layers never starve the beat
+  let bass = 0;
+  const fastHz = ana.bands[1].hz;
+  const bTop = Math.min(Math.floor(150 / fastHz), ana.fast.frequencyBinCount - 1);
+  for (let i = 1; i <= bTop; i++) {
+    const db = ana.fastData[i];
+    if (db > -85) bass += Math.pow(10, db / 20);
+  }
+
+  trackEnergy(total, bass, now);
+}
+
+/* ------------------------------------------------------- Chord detection */
+
+// pitch-class names, index 0 = A (the wheel's 12 o'clock)
+const NOTE_NAMES = ['A', 'A#', 'B', 'C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#'];
+
+/* One template per chord quality; all 12 roots are just rotations of the
+   chroma vector, so we score template x rotated chroma. Inversions share a
+   pitch-class set with their root position, and some qualities are rotations
+   of each other (Csus2 = {C,D,G} = Gsus4) - the root-weighting is what breaks
+   those ties, biased toward whichever candidate root carries more (bassier)
+   energy. */
+const QUALITIES = [
+  { name: '',     ivs: [0, 4, 7] },
+  { name: 'm',    ivs: [0, 3, 7] },
+  { name: 'dim',  ivs: [0, 3, 6] },
+  { name: 'aug',  ivs: [0, 4, 8] },
+  { name: 'sus4', ivs: [0, 5, 7] },
+  { name: 'sus2', ivs: [0, 2, 7] },
+  { name: '7',    ivs: [0, 4, 7, 10] },
+  { name: 'maj7', ivs: [0, 4, 7, 11] },
+  { name: 'm7',   ivs: [0, 3, 7, 10] },
+];
+
+function detectChord() {
+  let total = 0;
+  for (let i = 0; i < 12; i++) total += chroma[i];
+  chromaAgc = Math.max(chromaAgc * 0.995, total, 1e-6);
+  if (total < 0.15 * chromaAgc || chromaAgc < 1e-3) return null;
+
+  const c = new Array(12);
+  for (let i = 0; i < 12; i++) c[i] = chroma[i] / total;
+
+  let best = null, bestScore = 0;
+  for (let root = 0; root < 12; root++) {
+    for (const q of QUALITIES) {
+      let inS = 0;
+      for (let k = 0; k < q.ivs.length; k++) {
+        inS += c[(root + q.ivs[k]) % 12] * (k === 0 ? 1.15 : 1);
+      }
+      const score = inS / Math.pow(q.ivs.length, 0.55);
+      if (score > bestScore) { bestScore = score; best = { root, q }; }
+    }
+  }
+  if (!best) return null;
+  let frac = 0;
+  for (const iv of best.q.ivs) frac += c[(best.root + iv) % 12];
+  if (frac < 0.5) return null;   // too much energy outside the chord tones
+  return {
+    name: NOTE_NAMES[best.root] + best.q.name,
+    root: best.root,
+    pcs: best.q.ivs.map((iv) => (best.root + iv) % 12),
+    conf: frac,   // fraction of energy on chord tones (~0.5 weak .. 1.0 pure)
+  };
+}
+
+let chordShown = null, candName = null, candAt = 0, shownConf = 1;
+
+// fade the chord name toward transparent as certainty drops:
+// conf ~0.5 (weak) -> 0.3 opacity, conf >=0.85 (strong) -> 1.0
+function applyChordOpacity() {
+  const o = 0.3 + 0.7 * Math.min(Math.max((shownConf - 0.5) / 0.35, 0), 1);
+  document.getElementById('chordname').style.opacity = o.toFixed(3);
+}
+
+function updateChord(now) {
+  const det = detectChord();
+  const name = det ? det.name : null;
+  if (name !== candName) { candName = name; candAt = now; }
+  const shownName = chordShown ? chordShown.name : null;
+  if (now - candAt > 0.25 && candName !== shownName) {  // hysteresis
+    chordShown = det;
+    if (det) shownConf = det.conf;   // seed smoothing with the new chord's certainty
+    renderChord();
+  }
+  // track live certainty of the held chord so opacity breathes with confidence
+  if (chordShown) {
+    const live = (det && det.name === chordShown.name) ? det.conf : chordShown.conf;
+    shownConf += (live - shownConf) * 0.1;
+    applyChordOpacity();
+  }
+}
+
+let wheelSpans = [];
+
+function renderChord() {
+  document.getElementById('chordname').textContent = chordShown ? chordShown.name : '';
+  applyChordOpacity();
+  const box = document.getElementById('chordbox');
+  box.classList.toggle('sim', state.mode === 'sim');
+  document.getElementById('chordsub').textContent = '';
+}
+
+/* dual-resolution analyser pair, shared by mic and local modes */
+function makeAnalysers(ctx, src) {
+  const harm = ctx.createAnalyser();
+  harm.fftSize = 16384;             // ~2.9 Hz bins: separates semitones down to ~G1
+  harm.smoothingTimeConstant = 0.35; // window is long already; light extra smoothing
+  const fast = ctx.createAnalyser();
+  fast.fftSize = 4096;              // ~85 ms window: highs and beats stay snappy
+  fast.smoothingTimeConstant = 0.4;
+  src.connect(harm);
+  src.connect(fast);
+  const rate = ctx.sampleRate;
+  // per-band fold ranges plus scratch for the DSP stage (linear magnitudes,
+  // per-bin temporal EMA for the drum cut, envelope for whiten/focus)
+  const mkBand = (a, data, lo, hi) => {
+    const n = a.frequencyBinCount, hz = rate / 2 / n;
+    return {
+      data, hz,
+      i0: Math.max(2, Math.ceil(lo / hz)),
+      i1: Math.min(n - 2, Math.floor(hi / hz)),
+      mag: new Float32Array(n),
+      ema: new Float32Array(n),
+      env: new Float32Array(n),
+      phon: (() => {
+        const w = new Float32Array(n);
+        for (let i = 0; i < n; i++) w[i] = aWeightGain(Math.max(i * hz, 1));
+        return w;
+      })(),
+    };
+  };
+  const harmData = new Float32Array(harm.frequencyBinCount);
+  const fastData = new Float32Array(fast.frequencyBinCount);
+  return {
+    harm, fast, harmData, fastData, rate, lastT: 0,
+    bands: [mkBand(harm, harmData, F_LO, SPLIT_HZ),
+            mkBand(fast, fastData, SPLIT_HZ, F_HI)],
+  };
+}
+
+/* --- mic mode: real audio via getUserMedia --- */
+let micCtx = null, micAna = null, micStream = null;
+
+async function enableMic() {
+  micStream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+  });
+  micCtx = new (window.AudioContext || window.webkitAudioContext)();
+  micAna = makeAnalysers(micCtx, micCtx.createMediaStreamSource(micStream));
+}
+
+function disableMic() {
+  if (micStream) micStream.getTracks().forEach(t => t.stop());
+  if (micCtx) micCtx.close();
+  micCtx = micAna = micStream = null;
+}
+
+/* --- local mode: real audio files through an AnalyserNode --- */
+
+/* Deck manifest: waveloop/tracks.json, an array of { name, file } entries
+   (file is relative to waveloop/audio/; the CQT sidecar path is derived from
+   the file's stem). waveloop/add_track.py downloads new tracks, generates
+   their sidecars, and appends manifest entries, so adding a track never
+   touches this HTML. */
+let TRACKS = [];
+
+async function loadTracks() {
+  try {
+    const resp = await fetch('waveloop/tracks.json', { cache: 'no-cache' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const list = await resp.json();
+    if (!Array.isArray(list)) throw new Error('manifest is not an array');
+    TRACKS = list.filter((t) =>
+      t && typeof t.name === 'string' && typeof t.file === 'string');
+    TRACKS.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }));
+    renderTracks();
+  } catch (err) {
+    $('msg').textContent = '> deck manifest unavailable: '
+      + (err.message || err.name || err);
+  }
+}
+
+const audioEl = document.getElementById('localAudio');
+let actx = null, localAna = null, localDelay = null;
+let currentTrack = -1;
+
+/* The visual pipeline trails the signal (long FFT window + analyser smoothing
+   + display attack/release + history-row cadence), so undelayed playback is
+   heard before it is seen. Delaying only the audible branch by this much
+   lines the two up; the analysers keep tapping the undelayed source. */
+let syncDelaySec = 0.11;
+
+function ensureLocalGraph() {
+  if (actx) return;
+  actx = new (window.AudioContext || window.webkitAudioContext)();
+  const src = actx.createMediaElementSource(audioEl);
+  localAna = makeAnalysers(actx, src);   // analysers tap the undelayed signal
+  localDelay = actx.createDelay(0.5);
+  localDelay.delayTime.value = syncDelaySec;
+  src.connect(localDelay);
+  localDelay.connect(actx.destination);
+}
+
+function localPlaying() {
+  return currentTrack >= 0 && !audioEl.paused && !audioEl.ended;
+}
+
+function playTrack(i) {
+  if (!TRACKS[i]) return;
+  ensureLocalGraph();
+  if (actx.state === 'suspended') actx.resume();
+  if (currentTrack !== i) {
+    currentTrack = i;
+    audioEl.src = 'waveloop/audio/' + encodeURIComponent(TRACKS[i].file);
+    loadVqt(i);
+  }
+  audioEl.play();
+  if (state.mode !== 'mic') state.mode = 'local';
+  renderTracks();
+  setStatus();
+}
+
+/* ------------------------------------------- precomputed CQT sidecars
+   Local tracks have offline variable-Q spectrograms (96 log-spaced bins per
+   octave, see tools/waveloop_vqt.py) in waveloop/analysis/<stem>.vqt.gz:
+       magic 'WLQ1' | u32le header JSON length | header JSON | payload
+       payload = frames x (bins + extras) uint8, frame-major,
+       u8 = dB relative to track max, (-dbRange..0] -> (0..255], 0 = floor.
+   When a sidecar is loaded it drives the wheel instead of the live FFT,
+   indexed by the audio clock, so the bass resolves as cleanly as the highs.
+   The analyser graph keeps running underneath: it is the fallback while the
+   sidecar loads or if fetch/decode fails, and the only path for mic mode. */
+
+const VQT_CACHE_MAX = 3;     // decoded payloads are ~10 MB per track
+const VQT_VIS_LEAD = 0.03;   // seconds; display smoothing + history-row latency
+
+const vqtCache = new Map();  // track file -> prepared sidecar, insertion = LRU order
+let vqt = null;              // prepared sidecar for the current track
+let vqtState = 'none';       // none | loading | ready | failed
+let vqtSeq = 0;              // guards stale loads when tracks switch quickly
+let vqtAbort = null;
+let vqtLastT = 0;
+
+function parseWlq(u8) {
+  if (u8.length < 8 || u8[0] !== 0x57 || u8[1] !== 0x4C
+      || u8[2] !== 0x51 || u8[3] !== 0x31) throw new Error('bad magic');
+  const hlen = u8[4] | (u8[5] << 8) | (u8[6] << 16) | (u8[7] << 24);
+  const h = JSON.parse(new TextDecoder().decode(u8.subarray(8, 8 + hlen)));
+  const stride = h.bins + (h.extras ? h.extras.length : 0);
+  const payload = u8.subarray(8 + hlen);
+  if (h.v !== 1 || h.frames < 1 || payload.length < h.frames * stride) {
+    throw new Error('bad header/payload');
+  }
+  return { h, payload, stride };
+}
+
+/* Fold tables depend only on the analysis parameters, so every sidecar with
+   the same header shares one set. Per bin: an angular Gaussian kernel (the
+   same deposit shape the live fold paints, but using the bin's true analysis
+   bandwidth), register color, chord-chroma weight, and phon-weight gain. */
+let foldTab = null, foldKey = '';
+
+function buildFoldTab(h) {
+  const key = [h.bins, h.bpo, h.fmin, h.gamma].join('/');
+  if (foldTab && foldKey === key) return foldTab;
+  const n = h.bins, alpha = Math.pow(2, 1 / h.bpo) - 1;
+  const kStart = new Int32Array(n), kOff = new Int32Array(n), kLen = new Int32Array(n);
+  const colR = new Float32Array(n), colG = new Float32Array(n), colB = new Float32Array(n);
+  const rimRow = new Int32Array(n);   // fine register bin offset into angRim
+  const band = new Int32Array(n);
+  const pcIdx = new Int32Array(n).fill(-1), pcW = new Float32Array(n);
+  const phon = new Float32Array(n);
+  const hOff = new Int32Array(13);    // bin offset of the k-th harmonic
+  for (let k = 2; k <= 12; k++) hOff[k] = Math.round(h.bpo * Math.log2(k));
+  const w = [];
+  let bassTop = 0;
+  for (let i = 0; i < n; i++) {
+    const f = h.fmin * Math.pow(2, i / h.bpo);
+    if (f <= 150) bassTop = i;
+    const o = Math.min(Math.max(Math.log2(f / F_LO) / OCT_SPAN, 0), 1);
+    const li = regLutIndex(o);
+    colR[i] = REG_LUT[li]; colG[i] = REG_LUT[li + 1]; colB[i] = REG_LUT[li + 2];
+    rimRow[i] = Math.min(RIM_REGS - 1, (o * RIM_REGS) | 0) * ANG;
+    band[i] = regBand(o);
+    const lg = Math.log2(f / 440), frac = lg - Math.floor(lg);
+    if (f < 2200) { pcIdx[i] = Math.round(frac * 12) % 12; pcW[i] = 1 - 0.35 * o; }
+    phon[i] = Math.min(Math.max(aWeightGain(f), 0.06), 1.25);
+    const bw = alpha * f + (h.gamma || 0);
+    // 0.9-bin floor matches the live fold: thin deposits stay angularly
+    // well-sampled so trails read continuous
+    const sig = Math.max(0.9, Math.log2((f + bw) / f) * ANG * 0.5);
+    const rad = Math.min(Math.ceil(sig * 2.5), 96);
+    const x = frac * ANG, base = Math.round(x);
+    const inv2s2 = 1 / (2 * sig * sig);
+    const norm = 1 / (sig * 2.50662827);   // Gaussian area, keeps energy mass exact
+    kOff[i] = w.length; kLen[i] = 2 * rad + 1;
+    kStart[i] = ((base - rad) % ANG + ANG) % ANG;
+    for (let d = -rad; d <= rad; d++) {
+      const dd = base + d - x;
+      w.push(Math.exp(-dd * dd * inv2s2) * norm);
+    }
+  }
+  foldKey = key;
+  foldTab = { kStart, kOff, kLen, kW: new Float32Array(w),
+              colR, colG, colB, rimRow, band, pcIdx, pcW, phon, hOff, bassTop };
+  return foldTab;
+}
+
+function prepareVqt(parsed) {
+  const h = parsed.h;
+  const lut = new Float32Array(256);   // u8 -> linear magnitude; 0 stays a hard floor
+  for (let u = 1; u < 256; u++) lut[u] = Math.pow(10, (u / 255 - 1) * h.dbRange / 20);
+  return {
+    h, payload: parsed.payload, stride: parsed.stride,
+    fps: h.fps || h.sr / h.hop, frames: h.frames, nBins: h.bins,
+    bassIdx: h.extras ? h.extras.indexOf('bass') : -1,
+    lut, tab: buildFoldTab(h),
+    mag: new Float32Array(h.bins),    // DSP scratch
+    ema: new Float32Array(h.bins),
+    env: new Float32Array(h.bins),
+  };
+}
+
+async function loadVqt(i) {
+  const file = TRACKS[i].file;
+  const seq = ++vqtSeq;
+  if (vqtAbort) { vqtAbort.abort(); vqtAbort = null; }
+  vqt = null;
+  const cached = vqtCache.get(file);
+  if (cached) {
+    vqtCache.delete(file); vqtCache.set(file, cached);   // LRU bump
+    vqt = cached; vqtState = 'ready';
+    setStatus();
+    return;
+  }
+  vqtState = 'loading';
+  setStatus();
+  try {
+    vqtAbort = new AbortController();
+    const url = 'waveloop/analysis/'
+      + encodeURIComponent(file.replace(/\.[^.]+$/, '')) + '.vqt.gz';
+    const resp = await fetch(url, { signal: vqtAbort.signal });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const body = new Uint8Array(await resp.arrayBuffer());
+    let raw = body;
+    if (body[0] === 0x1f && body[1] === 0x8b) {   // still gzipped on the wire
+      if (typeof DecompressionStream !== 'function') {
+        throw new Error('DecompressionStream unsupported');
+      }
+      raw = new Uint8Array(await new Response(new Blob([body]).stream()
+        .pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+    }
+    const prepared = prepareVqt(parseWlq(raw));
+    if (seq !== vqtSeq) return;   // a newer track took over meanwhile
+    vqtCache.set(file, prepared);
+    while (vqtCache.size > VQT_CACHE_MAX) {
+      vqtCache.delete(vqtCache.keys().next().value);
+    }
+    vqt = prepared;
+    vqtState = 'ready';
+    $('msg').textContent = '> cqt loaded: ' + prepared.nBins + ' bins x '
+      + prepared.frames + ' frames';
+  } catch (err) {
+    if (seq !== vqtSeq) return;
+    vqtState = 'failed';
+    $('msg').textContent = '> cqt sidecar unavailable ('
+      + (err.message || err.name || err) + '); using live analyser';
+  }
+  setStatus();
+}
+
+/* one-pole forward+backward envelope with a constant bin window - on the
+   log-spaced axis a fixed window IS constant relative bandwidth */
+function smoothEnvLog(mag, env, n, w) {
+  let acc = mag[0];
+  for (let i = 0; i < n; i++) { acc += (mag[i] - acc) / w; env[i] = acc; }
+  acc = env[n - 1];
+  for (let i = n - 1; i >= 0; i--) { acc += (env[i] - acc) / w; env[i] = acc; }
+}
+
+/* overtone suppression on log bins: the k-th harmonic of bin i sits at a
+   constant offset i + round(bpo*log2(k)), so no per-band index math */
+function vqtSuppressOvertones(v, fmax) {
+  const floor = fmax * 0.004;   // ~-48 dB below frame peak, as in the live path
+  if (floor <= 0) return;
+  const n = v.nBins, mag = v.mag, hOff = v.tab.hOff;
+  let np = 0;
+  for (let i = 1; i < n - 1 && np < PEAK_CAP; i++) {
+    const m = mag[i];
+    if (m > floor && m > mag[i - 1] && m >= mag[i + 1]) peakIdx[np++] = i;
+  }
+  const amt = dsp.overtone;
+  const tol = Math.max(1.5, v.h.bpo * Math.log2(1.008));   // inharmonicity window
+  const r = Math.ceil(tol), inv = 1 / (2 * tol * tol);
+  for (let p = 0; p < np; p++) {
+    const i = peakIdx[p];
+    const mf = mag[i];            // current value: may itself have been cut
+    if (mf <= 0) continue;
+    for (let k = 2; k <= 12; k++) {
+      const ci = i + hOff[k];
+      if (ci - r >= n) break;
+      const cap = mf / Math.pow(k, 0.6);
+      for (let d = -r; d <= r; d++) {
+        const j = ci + d;
+        if (j < 0 || j >= n) continue;
+        const mh = mag[j];
+        if (mh <= 0) continue;
+        const conf = Math.min(cap / mh, 1);
+        mag[j] = mh * (1 - amt * conf * Math.exp(-d * d * inv));
+      }
+    }
+  }
+}
+
+/* the same six DSP layers as dspApply, ported to the log-frequency bins;
+   same order: drum cut -> phon -> gate -> whiten -> overtone cut -> focus */
+function vqtDspApply(v, dt) {
+  const n = v.nBins, mag = v.mag, ema = v.ema, env = v.env;
+  const bpo = v.h.bpo;
+
+  const emaK = 1 - Math.exp(-dt / 0.3);
+  for (let i = 0; i < n; i++) {
+    const m = mag[i], e = ema[i];
+    if (dsp.drums > 0 && m > e * 1.8) {
+      mag[i] = m * Math.pow((e * 1.8 + 1e-12) / m, dsp.drums);
+    }
+    ema[i] = e + (m - e) * emaK;   // EMA tracks the RAW magnitudes
+  }
+
+  if (dsp.phon > 0) {
+    const ph = v.tab.phon;        // pre-clamped per-bin A-weight gains
+    for (let i = 0; i < n; i++) mag[i] *= Math.pow(ph[i], dsp.phon);
+  }
+
+  let fmax = 0;
+  for (let i = 0; i < n; i++) if (mag[i] > fmax) fmax = mag[i];
+
+  if (dsp.gate > 0 && fmax > 0) {
+    const thr = fmax * Math.pow(10, (-72 + 40 * dsp.gate) / 20);
+    const t2 = thr * thr;
+    for (let i = 0; i < n; i++) {
+      const m2 = mag[i] * mag[i];
+      mag[i] *= m2 / (m2 + t2);
+    }
+  }
+
+  if (dsp.whiten > 0) {
+    smoothEnvLog(mag, env, n, bpo * 0.5);   // half-octave envelope
+    let ref = 0;
+    for (let i = 0; i < n; i++) ref += env[i];
+    ref = ref / n + 1e-12;
+    for (let i = 0; i < n; i++) {
+      mag[i] *= Math.min(Math.pow(ref / (env[i] + 0.05 * ref), dsp.whiten), 6);
+    }
+  }
+
+  if (dsp.overtone > 0) vqtSuppressOvertones(v, fmax);
+
+  if (dsp.focus > 0) {
+    smoothEnvLog(mag, env, n, Math.max(bpo * 0.085, 4));   // ~semitone-wide mean
+    for (let i = 0; i < n; i++) {
+      if (env[i] <= 0) continue;
+      mag[i] *= Math.min(Math.pow(mag[i] / env[i], dsp.focus * 1.5), 4);
+    }
+  }
+}
+
+function vqtFrame(v, now) {
+  const dt = Math.min(Math.max(now - vqtLastT, 0.001), 0.1);
+  vqtLastT = now;
+  angEnergy.fill(0); angR.fill(0); angG.fill(0); angB.fill(0); angRim.fill(0); angW.fill(0);
+  chromaRaw.fill(0);
+
+  let total = 0, bass = 0;
+  if (localPlaying()) {
+    // index by what is being HEARD: element time minus the audible delay
+    // branch, plus a small lead for the display chain's own smoothing lag.
+    // Frames are lerped in linear magnitude (analysis ~43 fps, display 60+).
+    const t = Math.max(audioEl.currentTime - syncDelaySec + VQT_VIS_LEAD, 0);
+    const p = Math.min(Math.max(t * v.fps, 0), v.frames - 1);
+    const f0 = p | 0, fr = p - f0;
+    const r0 = f0 * v.stride;
+    const r1 = Math.min(f0 + 1, v.frames - 1) * v.stride;
+    const payload = v.payload, lut = v.lut, mag = v.mag, n = v.nBins;
+    let raw = 0;
+    for (let i = 0; i < n; i++) {
+      const m = lut[payload[r0 + i]] * (1 - fr) + lut[payload[r1 + i]] * fr;
+      mag[i] = m;
+      raw += m;
+    }
+    if (v.bassIdx >= 0) {
+      bass = lut[payload[r0 + n + v.bassIdx]] * (1 - fr)
+           + lut[payload[r1 + n + v.bassIdx]] * fr;
+    } else {
+      for (let i = 0; i <= v.tab.bassTop; i++) bass += mag[i];
+    }
+
+    // sidecars are normalized to track max, so only quiet passages within a
+    // track ever earn the (file-tier) makeup boost
+    const g = updateMakeup(raw, dt, MAKEUP_MAX_FILE);
+    if (g > 1.001) for (let i = 0; i < n; i++) mag[i] *= g;
+
+    if (dspActive()) vqtDspApply(v, dt);
+
+    const tab = v.tab, kW = tab.kW;
+    const mask = ANG - 1;   // ANG is a power of two, deposits wrap with a mask
+    for (let i = 0; i < n; i++) {
+      const m = mag[i];
+      if (m <= 0) continue;
+      total += m;
+      const cm = Math.pow(m, REG_GAMMA);
+      const cr = tab.colR[i], cg = tab.colG[i], cb = tab.colB[i];
+      const rr = tab.rimRow[i];
+      const ro = tab.band[i] * ANG;
+      const off = tab.kOff[i], len = tab.kLen[i], s = tab.kStart[i];
+      for (let j = 0; j < len; j++) {
+        const ai = (s + j) & mask;
+        const a = ai + ro;
+        const g = kW[off + j];
+        angEnergy[a] += m * g;
+        angRim[rr + ai] += m * g;
+        const cw = cm * g;
+        angR[a] += cw * cr; angG[a] += cw * cg; angB[a] += cw * cb;
+        angW[a] += cw;
+      }
+      // chord chroma: same peak picking as the live fold (3.2e-4 ~ -70 dB)
+      if (tab.pcIdx[i] >= 0 && m > 3.2e-4
+          && (i === 0 || m > mag[i - 1]) && (i === n - 1 || m >= mag[i + 1])) {
+        chromaRaw[tab.pcIdx[i]] += Math.sqrt(m) * tab.pcW[i];
+      }
+    }
+  }
+  trackEnergy(total, bass, now);
+}
+
+/* --- idle shimmer: a slow synthetic drift around the wheel when nothing
+   real is playing, so the page never sits fully dark */
+
+const SIM_SIG = ANG / 170;                 // same angular note width at any bin count
+const SIM_RAD = Math.ceil(SIM_SIG * 3.3);
+const SIM_INV2S2 = 1 / (2 * SIM_SIG * SIM_SIG);
+
+function addSimNote(pc, oct01, amp) {
+  if (amp <= 0) return;
+  const c = (((pc % 12) + 12) % 12) / 12 * ANG;   // pc may be fractional (detune/vibrato)
+  const base = Math.round(c);
+  const li = regLutIndex(oct01);
+  const cr = REG_LUT[li], cg = REG_LUT[li + 1], cb = REG_LUT[li + 2];
+  const ro = regBand(oct01) * ANG;
+  const rr = Math.min(RIM_REGS - 1, (oct01 * RIM_REGS) | 0) * ANG;
+  const camp = Math.pow(amp, REG_GAMMA);
+  for (let d = -SIM_RAD; d <= SIM_RAD; d++) {
+    const ai = ((base + d) % ANG + ANG) % ANG;
+    const a = ai + ro;
+    const dd = base + d - c;
+    const g = Math.exp(-dd * dd * SIM_INV2S2);
+    angEnergy[a] += amp * g;
+    angRim[rr + ai] += amp * g;
+    const cw = camp * g;
+    angR[a] += cw * cr; angG[a] += cw * cg; angB[a] += cw * cb;
+    angW[a] += cw;
+  }
+}
+
+function simFrame(t) {
+  angEnergy.fill(0); angR.fill(0); angG.fill(0); angB.fill(0); angRim.fill(0); angW.fill(0);
+  chromaRaw.fill(0);
+
+  // slow shimmer drifting around the wheel
+  for (let k = 0; k < 3; k++) {
+    addSimNote((t * 0.6 + k * 4) % 12, 0.37 + 0.13 * k,
+      0.06 + 0.04 * Math.sin(t * 0.7 + k * 2.1));
+  }
+  state.level += (0.08 - state.level) * 0.1;
+}
+
+/* ----------------------------------------------------------------- UI */
+
+const $ = (id) => document.getElementById(id);
+
+const wheelEl = $('wheel');
+NOTE_NAMES.forEach((n) => {
+  const s = document.createElement('span');
+  s.textContent = n;
+  wheelEl.appendChild(s);
+});
+wheelSpans = Array.from(wheelEl.children);
+
+function layoutLabels() {
+  const R = 0.455 * Math.min(innerWidth, innerHeight);
+  const cx = innerWidth / 2, cy = innerHeight / 2;
+  wheelSpans.forEach((s, i) => {
+    const th = (i / 12) * Math.PI * 2;   // A at top, ascending clockwise
+    s.style.left = (cx + R * Math.sin(th)) + 'px';
+    s.style.top = (cy - R * Math.cos(th)) + 'px';
+  });
+}
+addEventListener('resize', () => { resize(); layoutLabels(); });
+resize();
+layoutLabels();
+
+function setStatus() {
+  const chip = $('modeChip');
+  chip.className = 'chip ' + state.mode;
+  $('modeText').textContent = state.mode === 'mic' ? 'LIVE MIC'
+    : state.mode === 'local' ? 'LOCAL' : 'IDLE';
+  $('micBtn').classList.toggle('toggled', state.mode === 'mic');
+  $('playBtn').textContent = localPlaying() ? 'Pause' : 'Play';
+  renderChord();
+}
+
+$('micBtn').onclick = async () => {
+  if (state.mode === 'mic') {
+    disableMic();
+    state.mode = currentTrack >= 0 ? 'local' : 'sim';
+    $('micNote').style.display = 'none';
+  } else {
+    try {
+      await enableMic();
+      state.mode = 'mic';
+      $('micNote').style.display = 'block';
+      setTimeout(() => { $('micNote').style.display = 'none'; }, 9000);
+    } catch (err) {
+      $('msg').textContent = '> mic unavailable: ' + (err.message || err.name || err);
+    }
+  }
+  setStatus();
+};
+
+$('minBtn').onclick = () => {
+  const p = $('panel');
+  p.classList.toggle('min');
+  $('minBtn').innerHTML = p.classList.contains('min') ? '+' : '&#8211;';
+};
+
+/* dsp panel */
+const DSP_KEYS = ['overtone', 'whiten', 'phon', 'focus', 'gate', 'drums'];
+const dspCap = (k) => k[0].toUpperCase() + k.slice(1);
+
+const dspMatches = (p) => DSP_KEYS.every((k) => Math.abs(dsp[k] - p[k]) < 0.005);
+
+function syncDspUi() {
+  for (const k of DSP_KEYS) {
+    const pct = Math.round(dsp[k] * 100);
+    $('k' + dspCap(k)).value = pct;
+    $('v' + dspCap(k)).textContent = pct + '%';
+    $('k' + dspCap(k)).closest('.krow').classList.toggle('on', dsp[k] > 0);
+  }
+  const tag = dspMatches(DSP_PRESETS.raw) ? 'raw'
+    : dspMatches(DSP_PRESETS.melodic) ? 'melodic' : 'shaped';
+  $('dspTag').textContent = tag;
+  $('dspRawBtn').classList.toggle('toggled', tag === 'raw');
+  $('dspMelodicBtn').classList.toggle('toggled', tag === 'melodic');
+}
+
+for (const k of DSP_KEYS) {
+  $('k' + dspCap(k)).addEventListener('input', () => {
+    dsp[k] = $('k' + dspCap(k)).value / 100;
+    syncDspUi();
+  });
+}
+$('dspRawBtn').onclick = () => { Object.assign(dsp, DSP_PRESETS.raw); syncDspUi(); };
+$('dspMelodicBtn').onclick = () => { Object.assign(dsp, DSP_PRESETS.melodic); syncDspUi(); };
+$('dspMinBtn').onclick = () => {
+  const p = $('dsp');
+  p.classList.toggle('min');
+  $('dspMinBtn').innerHTML = p.classList.contains('min') ? '+' : '&#8211;';
+};
+syncDspUi();
+
+/* local deck */
+function renderTracks() {
+  const ul = $('tracks');
+  ul.innerHTML = '';
+  TRACKS.forEach((t, i) => {
+    const li = document.createElement('li');
+    if (i === currentTrack) li.classList.add('active');
+    const no = document.createElement('span');
+    no.className = 'no';
+    no.textContent = i === currentTrack && localPlaying() ? '>>' : String(i + 1).padStart(2, '0');
+    const nm = document.createElement('span');
+    nm.className = 'tname';
+    nm.textContent = t.name;
+    li.append(no, nm);
+    li.onclick = () => {
+      if (i === currentTrack && localPlaying()) audioEl.pause();
+      else playTrack(i);
+    };
+    ul.appendChild(li);
+  });
+}
+
+function fmtTime(s) {
+  if (!isFinite(s)) return '--:--';
+  s = Math.floor(s);
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+
+$('playBtn').onclick = () => {
+  if (currentTrack < 0) { playTrack(0); return; }
+  if (audioEl.paused) playTrack(currentTrack);
+  else audioEl.pause();
+};
+
+$('syncDelay').addEventListener('input', () => {
+  const ms = +$('syncDelay').value;
+  syncDelaySec = ms / 1000;
+  $('syncVal').textContent = ms + ' ms';
+  if (localDelay) localDelay.delayTime.value = syncDelaySec;
+});
+
+let seeking = false;
+$('seek').addEventListener('input', () => {
+  seeking = true;
+  if (audioEl.duration) audioEl.currentTime = $('seek').value / 1000 * audioEl.duration;
+});
+$('seek').addEventListener('change', () => { seeking = false; });
+
+audioEl.addEventListener('loadedmetadata', () => {
+  $('seek').disabled = false;
+  $('ttime').textContent = fmtTime(audioEl.currentTime) + ' / ' + fmtTime(audioEl.duration);
+});
+audioEl.addEventListener('timeupdate', () => {
+  if (!seeking && audioEl.duration) {
+    $('seek').value = (audioEl.currentTime / audioEl.duration * 1000) | 0;
+  }
+  $('ttime').textContent = fmtTime(audioEl.currentTime) + ' / ' + fmtTime(audioEl.duration);
+});
+audioEl.addEventListener('play', () => { renderTracks(); setStatus(); });
+audioEl.addEventListener('pause', () => { renderTracks(); setStatus(); });
+audioEl.addEventListener('ended', () => {
+  if (TRACKS.length) playTrack((currentTrack + 1) % TRACKS.length);
+});
+audioEl.addEventListener('error', () => {
+  $('msg').textContent = '> error: could not load ' +
+    (TRACKS[currentTrack] ? TRACKS[currentTrack].name : 'track');
+});
+
+renderTracks();
+loadTracks();
+setStatus();
+
+/* ------------------------------------------------------------ main loop */
+
+let lastNow = performance.now() / 1000;
+lastRowAt = lastNow;
+
+function frame() {
+  const now = performance.now() / 1000;
+  const dt = Math.min(now - lastNow, 0.1);
+  lastNow = now;
+
+  if (state.mode === 'mic' && micAna) {
+    liveFrame(micAna, now);
+  } else if (state.mode === 'local' && vqtState === 'ready' && vqt) {
+    vqtFrame(vqt, now);
+  } else if (state.mode === 'local' && localAna) {
+    liveFrame(localAna, now);
+  } else {
+    simFrame(now);
+  }
+  state.beat = Math.max(0, state.beat - dt * 3.2);
+
+  // loudness normalization for the wheel bins: the gain reference tracks a
+  // mid-high percentile of the per-angle TOTAL energies - the accompaniment
+  // level, NOT the loudest spoke - with a fast attack and slow release, so a
+  // dominant fundamental stands several times above the reference instead of
+  // being normalized back down to it. A wide soft knee maps total energy to
+  // display level in 0..E_MAX: the reference angle lands near 0.8, loud
+  // fundamentals climb toward E_MAX, and only the knee's asymptote (plus the
+  // 0.2*max floor on the reference) flattens genuinely freak spikes. The
+  // kneed total is then split across register bands in proportion to their
+  // raw energy, so the band layers always sum to the same overall level the
+  // old blended wheel showed.
+  for (let a = 0; a < ANG; a++) {
+    angTot[a] = angEnergy[a] + angEnergy[a + ANG]
+              + angEnergy[a + 2 * ANG] + angEnergy[a + 3 * ANG];
+  }
+  agcScratch.set(angTot);
+  agcScratch.sort();
+  const stat = Math.max(agcScratch[(ANG * 0.85) | 0], agcScratch[ANG - 1] * 0.2);
+  angRef += (stat - angRef) * (1 - Math.exp(-dt / (stat > angRef ? 0.25 : 4.0)));
+  if (angRef < 2e-4) angRef = 2e-4;   // gate so silence isn't boosted to noise
+  for (let a = 0; a < ANG; a++) {
+    const x = angTot[a] / angRef;
+    const e = E_MAX * x / (x + 1.5);
+    const shareK = angTot[a] > 1e-12 ? e / angTot[a] : 0;
+    for (let jr = 0; jr < NREG; jr++) {
+      const i = jr * ANG + a;
+      const eb = angEnergy[i] * shareK;
+      dispE[i] += (eb - dispE[i]) * (eb > dispE[i] ? 0.5 : 0.16);
+      if (angW[i] > 1e-9) {
+        const inv = 1 / angW[i];
+        dispR[i] += (angR[i] * inv - dispR[i]) * 0.3;
+        dispG[i] += (angG[i] * inv - dispG[i]) * 0.3;
+        dispB[i] += (angB[i] * inv - dispB[i]) * 0.3;
+      }
+      // peak-hold between history rows: on high-refresh displays several
+      // frames land in one row; keep the brightest so transients aren't lost
+      if (dispE[i] > rowPeakE[i]) {
+        rowPeakE[i] = dispE[i];
+        rowPeakR[i] = dispR[i]; rowPeakG[i] = dispG[i]; rowPeakB[i] = dispB[i];
+      }
+    }
+  }
+  for (let i = 0; i < 12; i++) chroma[i] += (chromaRaw[i] - chroma[i]) * 0.07;
+  updateChord(now);
+
+  resize();
+
+  // push history rows at a fixed cadence so trail speed is time-accurate
+  if (now - lastRowAt > TRAIL_SECONDS) lastRowAt = now - ROW_DT;
+  let pushed = false;
+  while (now - lastRowAt >= ROW_DT) {
+    lastRowAt += ROW_DT;
+    pushed = true;
+    histHead = (histHead + 1) % HIST_ROWS;
+    const am = ANG - 1;
+    for (let jr = 0; jr < NREG; jr++) {
+      const rb = jr * ANG;
+      for (let a = 0; a < ANG; a++) {
+        // brightness keeps the unblurred deposit (its true footprint).
+        // Near-silent energy snaps to zero so colCount can skip dark columns.
+        const i = rb + a;
+        const o = i * HIST_ROWS + histHead;
+        const e = rowPeakE[i] >= 0.002 ? rowPeakE[i] : 0;
+        if (histE[o] > 0) colCount[i]--;
+        if (e > 0) colCount[i]++;
+        histE[o] = e;
+        // the radial SPEED this row flies at reads a binomial-smoothed
+        // (sigma ~1 bin, wrapped) copy of the amplitude, so neighboring
+        // columns of one note travel together (see rasterTrails)
+        histS[o] = (rowPeakE[rb + ((a - 2) & am)] + 4 * rowPeakE[rb + ((a - 1) & am)]
+                  + 6 * rowPeakE[i] + 4 * rowPeakE[rb + ((a + 1) & am)]
+                  + rowPeakE[rb + ((a + 2) & am)]) * 0.0625;
+        histR[o] = rowPeakR[i]; histG[o] = rowPeakG[i]; histB[o] = rowPeakB[i];
+      }
+    }
+    rowPeakE.set(dispE);
+    rowPeakR.set(dispR); rowPeakG.set(dispG); rowPeakB.set(dispB);
+  }
+
+  // re-rasterize when a row lands: row pushes are the only thing that moves
+  // the trail field (ages, and so radii, advance one row at a time), exactly
+  // as the old u_head-driven shader mapping only changed on push
+  if (pushed) rasterTrails();
+
+  // rim color texture: smooth the fine register histogram with the same
+  // attack/release as the band energies (only per-angle RATIOS matter here,
+  // so the AGC's shareK scaling is irrelevant), then invert each angle's
+  // distribution into register-at-stack-fraction texels. Silent angles keep
+  // their last partition so the dim residual stack holds its colors while
+  // it fades. Tiny, so re-upload every frame.
+  for (let i = 0; i < RIM_REGS * ANG; i++) {
+    dispRim[i] += (angRim[i] - dispRim[i]) * (angRim[i] > dispRim[i] ? 0.5 : 0.16);
+  }
+  for (let a = 0; a < ANG; a++) {
+    let tot = 0;
+    for (let k = 0; k < RIM_REGS; k++) tot += dispRim[k * ANG + a];
+    if (tot < 1e-9) continue;
+    let k = 0, cum = dispRim[a];
+    for (let t = 0; t < RIMT; t++) {
+      const target = (t + 0.5) / RIMT * tot;
+      while (cum < target && k < RIM_REGS - 1) { k++; cum += dispRim[k * ANG + a]; }
+      const e = dispRim[k * ANG + a];
+      const frac = e > 0 ? 1 - (cum - target) / e : 0.5;
+      rimPix[t * ANG + a] = (k + frac) / RIM_REGS * 255 + 0.5;
+    }
+  }
+  gl.activeTexture(gl.TEXTURE1);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, ANG, RIMT,
+    gl.LUMINANCE, gl.UNSIGNED_BYTE, rimPix);
+  gl.activeTexture(gl.TEXTURE0);
+
+  gl.uniform2f(U.u_res, canvas.width, canvas.height);
+  gl.uniform1f(U.u_time, now);
+  gl.uniform1f(U.u_level, state.level);
+  gl.uniform1f(U.u_beat, state.beat);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+
+
+</body><div style="all: initial !important;"><template shadowrootmode="open"><div id="ro-bx" style="z-index: 2147483647; position: relative;"><div id="ro-bx-aircanada" class="jss1 jss2"></div></div><style data-jss="" data-meta="makeStyles">
+.jss3 {
+  animation: jss4 1s linear infinite;
+}
+@-webkit-keyframes jss4 {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.99;
+  }
+}
+</style><style data-jss="" data-meta="makeStyles">
+
+</style><style data-jss="" data-meta="makeStyles">
+</style><style data-jss="" data-meta="MuiCssBaseline">
+html {
+  box-sizing: border-box;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+*, *::before, *::after {
+  box-sizing: inherit;
+}
+strong, b {
+  font-weight: 600;
+}
+body {
+  color: rgba(0, 0, 0, 0.87);
+  margin: 0;
+  font-size: 12px;
+  font-family: "Open Sans", sans-serif;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+  background-color: #FFFFFF;
+}
+@media print {
+  body {
+    background-color: #FFFFFF;
+  }
+}
+body::backdrop {
+  background-color: #FFFFFF;
+}
+:host {
+  all: initial;
+  display: block;
+  background: white;
+}
+</style></template></div></html>
