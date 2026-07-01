@@ -69,10 +69,7 @@
     const parts = [];
     for (const midi of notes.keys()) {
       const m = NC.noteToColour(midi, notes.get(midi).velocity, params);
-      const name = NC.PITCH_CLASSES[m.pcIndex] + m.octave;
-      const oct01 = Math.min(1, Math.max(0,
-        (m.octave - params.octaveLow) / Math.max(1, params.octaveHigh - params.octaveLow)));
-      parts.push(`${name} · oct ${(oct01 * 100).toFixed(0)}%`);
+      parts.push(`${NC.PITCH_CLASSES[m.pcIndex]}${m.octave}`);
     }
     notesReadout.textContent = parts.join('   ');
   }

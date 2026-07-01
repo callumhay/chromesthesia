@@ -8,10 +8,11 @@
 //   1. The audio/FFT input (foldBand) is replaced by feedNotes(): active MIDI
 //      notes deposit energy + the chromesthesia core colour into the same
 //      per-angle accumulator arrays the engine already consumes.
-//   2. The Oklch register colouring (regColor/u_rim) is replaced by cel
-//      shading: the rim stack renders each note's pure chromesthesia core
-//      colour plus ONE hard-edged accent band whose brightness encodes the
-//      octave. u_rim now carries a normalized octave value per angle.
+//   2. The Oklch register colouring is replaced by chromesthesia colours: each
+//      note's colour is its circle-of-fifths hue, shaded for its octave (darker
+//      for low octaves, brighter/whiter for high) within a bounded range. The
+//      octave-shaded colour is baked in by feedNotes, so the trail and rim just
+//      carry it - no extra shader machinery.
 //
 // Everything downstream (raster, smoothing, trails, shader compositing) is the
 // original engine, so waveloop's glow/trails come along unchanged.
@@ -37,9 +38,6 @@ function createVisualizer(canvas, getParams) {
   const OCT_LO = 0, OCT_HI = 8;
   const OCT_SPAN = OCT_HI - OCT_LO;
 
-  const RIM_REGS = 48;
-  const RIMT = 64;
-
   // Per-note display energy. waveloop's loud fundamentals feed the engine an
   // eTot in the ~1..2 range (its EMAX ceiling is 2.0); the rim-stack height
   // and trail launch speed are both tuned around that scale. A full-velocity
@@ -52,11 +50,11 @@ attribute vec2 p;
 void main() { gl_Position = vec4(p, 0.0, 1.0); }
 `;
 
-  // Cel-shaded fragment shader. Kept structurally identical to waveloop's, with
-  // the rim-stack section rewritten: instead of an Oklch register ramp, the
-  // stack shows the note's core colour (from the trail rgb) and a single hard
-  // accent band, its brightness read from u_rim (normalized octave) via the
-  // cel params passed as uniforms.
+  // Fragment shader, structurally identical to waveloop's. The only change is
+  // the colour source: the trail/rim carry the note's octave-shaded
+  // chromesthesia colour (deposited by feedNotes), instead of waveloop's Oklch
+  // register ramp. Octave lives in that colour, so no extra shader uniforms are
+  // needed for it.
   const FRAG = `
 precision highp float;
 uniform vec2 u_res;
@@ -64,10 +62,6 @@ uniform float u_time;
 uniform float u_level;
 uniform float u_beat;
 uniform sampler2D u_hist;
-uniform sampler2D u_rim;      // per-angle normalized octave brightness (0..1)
-uniform float u_bandThick;    // accent band thickness (fraction of stack)
-uniform float u_coreRatio;    // core vs band split of the stack
-uniform float u_accentSat;    // accent saturation (hue keep vs white lift)
 
 const float TAU = 6.28318530718;
 const float ANGC = ${ANG_TEX}.0;
@@ -78,7 +72,6 @@ const float TROWS = RBINS * REGS;
 const float R0 = 0.19;
 const float RT = 0.40;
 const float EMAX = 2.0;
-const float RIMT = ${RIMT}.0;
 
 float hash(vec2 p) {
   p = fract(p * vec2(123.34, 456.21));
@@ -120,12 +113,6 @@ vec4 radAt(vec3 ang, float xr, float band) {
              texture2D(u_hist, vec2(ang.x, y)), ang.z);
 }
 
-// normalized octave brightness at this angle (cel accent driver), off u_rim
-float octAt(vec3 ang) {
-  return mix(texture2D(u_rim, vec2(ang.y, 0.5)),
-             texture2D(u_rim, vec2(ang.x, 0.5)), ang.z).r;
-}
-
 void main() {
   float mn = min(u_res.x, u_res.y);
   vec2 uv = (gl_FragCoord.xy - 0.5 * u_res) / mn;
@@ -163,61 +150,30 @@ void main() {
     col += h.rgb * h.a * EMAX * (0.55 + 0.95 * ha) * trailMask;
   }
 
-  // --- cel-shaded rim stack: core colour band + one hard accent band.
-  // Core colour is the summed live trail colour at this angle (bin 0). The
-  // accent band's brightness comes from the note's octave (u_rim), rendered
-  // as a discrete step directly outside the core, edge-to-edge (no gap).
+  // --- leading rim stack (waveloop's original, verbatim). The colour comes
+  // from the trail's own rgb (coreRgb) which already carries the note's
+  // octave-shaded chromesthesia colour, deposited by feedNotes - so octave is
+  // baked into the colour and the rim just uses it. Total height is the angle's
+  // energy; the stack grows outward from the ring.
   vec4 hn[4];
   float eTot = 0.0;
   vec3 coreRgb = vec3(0.0);
   for (int j = 0; j < 4; j++) {
     hn[j] = radAt(ang, 0.0, float(j));
-    float e = hn[j].a * hn[j].a * EMAX;
-    eTot += e;
-    coreRgb += hn[j].rgb * hn[j].a * EMAX;  // premultiplied core colour sum
+    eTot += hn[j].a * hn[j].a * EMAX;
+    coreRgb += hn[j].rgb * hn[j].a * EMAX;
   }
-  if (eTot > 1e-4) coreRgb /= eTot;         // recover pure hue
+  if (eTot > 1e-4) coreRgb /= eTot;             // recover the octave-shaded hue
 
-  // Core rim + cel octave halo. The core is a bright rim of the pure
-  // chromesthesia colour hugging the base ring. Directly outside it, a single
-  // hard-edged HALO band encodes octave: its colour steps hard from a deep
-  // shadowed rim (low octave) through the pure hue (mid) to a white-hot flame
-  // tip (high octave). Fixed thickness, so octave lives in the colour, not the
-  // size. Rendered with max() (not additive) so the trail colour underneath
-  // can't wash the halo back to the homogeneous core hue.
   float s2 = eTot * eTot;
-  float coreH = 0.012 + 0.05 * s2 / (s2 + 1.0);
+  float stackH = 0.006 + 0.30 * s2 / (s2 + 4.0);
   float xo = r - r0;
-  float aa = 0.0035;
-  if (eTot > 1e-4) {
-    float bright = 0.35 + 0.80 * min(eTot, 2.2);
-    float oct = octAt(angN);                      // 0..1 octave (0 low .. 1 high)
-
-    // 1) core rim: pure chromesthesia colour
-    float core = smoothstep(-aa, aa, xo) - smoothstep(coreH - aa, coreH + aa, xo);
-    col += coreRgb * core * bright;
-
-    // 2) octave halo band, fixed thickness, edge-to-edge with the core
-    float bandW = mix(0.02, 0.055, clamp(u_bandThick, 0.0, 1.0));
-    float bIn = coreH;
-    float bOut = coreH + bandW;
-    float band = smoothstep(bIn - aa, bIn + aa, xo)
-               - smoothstep(bOut - aa, bOut + aa, xo);
-
-    // hard 3-way cel colour ramp on octave:
-    //   low  (oct~0)  -> deep shadow: core hue at ~25% -> dark rim
-    //   mid  (oct~.5) -> the pure chromesthesia hue
-    //   high (oct~1)  -> white-hot: hue lifted toward white by accentSat
-    vec3 shadow = coreRgb * 0.25;
-    vec3 pure   = coreRgb;
-    vec3 hot    = mix(coreRgb, vec3(1.0), (1.0 - u_accentSat) * 0.85 + 0.15);
-    vec3 accent = (oct < 0.5) ? mix(shadow, pure, oct / 0.5)
-                              : mix(pure, hot, (oct - 0.5) / 0.5);
-    // halo written with max so the additive trail can't dilute its identity
-    vec3 haloCol = accent * (0.9 + 0.6 * min(eTot, 2.0)) * band;
-    col = max(col, haloCol);
+  float aa = 0.003;
+  float stk = smoothstep(-aa, aa, xo) - smoothstep(stackH - aa, stackH + aa, xo);
+  if (stk > 0.001) {
+    float bright = 0.25 + 0.85 * min(eTot, 2.2);
+    col += coreRgb * stk * bright;
   }
-  float stackH = coreH;   // used by ring glow below
 
   float ringGlow = exp(-abs(r - r0) * 70.0);
   float occupied = clamp(eTot * 4.0, 0.0, 1.0);
@@ -268,8 +224,7 @@ void main() {
   gl.vertexAttribPointer(locP, 2, gl.FLOAT, false, 0, 0);
 
   const U = {};
-  for (const name of ['u_res', 'u_time', 'u_level', 'u_beat', 'u_hist', 'u_rim',
-                      'u_bandThick', 'u_coreRatio', 'u_accentSat']) {
+  for (const name of ['u_res', 'u_time', 'u_level', 'u_beat', 'u_hist']) {
     U[name] = gl.getUniformLocation(prog, name);
   }
 
@@ -299,23 +254,6 @@ void main() {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
   gl.uniform1i(U.u_hist, 0);
-
-  // u_rim: per-angle normalized octave (0..1). One meaningful row is enough
-  // (the shader samples at 0.5), but we keep RIMT rows so the texture layout
-  // matches the LINEAR-filtered sampler. Initialized to mid-brightness.
-  const rimPix = new Uint8Array(RIMT * ANG);
-  rimPix.fill(128);
-  const rimTex = gl.createTexture();
-  gl.activeTexture(gl.TEXTURE1);
-  gl.bindTexture(gl.TEXTURE_2D, rimTex);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, ANG, RIMT, 0,
-    gl.LUMINANCE, gl.UNSIGNED_BYTE, rimPix);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.uniform1i(U.u_rim, 1);
-  gl.activeTexture(gl.TEXTURE0);
 
   // ---- trail raster (verbatim from waveloop) -------------------------------
   const SPD_MIN = 0.15, SPD_MAX = 1.25, TIP_FEATHER = 4.0, E_MAX = 2.0;
@@ -500,23 +438,15 @@ void main() {
   const angG = new Float32Array(NREG * ANG);
   const angB = new Float32Array(NREG * ANG);
   const angW = new Float32Array(NREG * ANG);
-  const angOct = new Float32Array(ANG);   // brightest octave value per angle
   // smoothed display copies (like waveloop's dispR/dispE)
   const dispE = new Float32Array(NREG * ANG);
   const dispR = new Float32Array(NREG * ANG);
   const dispG = new Float32Array(NREG * ANG);
   const dispB = new Float32Array(NREG * ANG);
-  const dispOct = new Float32Array(ANG);
 
   const chroma = new Float32Array(12);
   const chromaRaw = new Float32Array(12);
 
-  // GLSL-style smoothstep, for the octave-colour pulse shaping.
-  function smoothstep(e0, e1, x) {
-    if (e1 <= e0) return x < e0 ? 0 : 1;
-    const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
-    return t * t * (3 - 2 * t);
-  }
   // pitch class index (0=A) -> angular bin center. A at 12 o'clock.
   function pcToAngleBin(pc) { return (pc / 12) * ANG; }
   // octave -> register band (0..NREG-1), low octave inner.
@@ -529,13 +459,11 @@ void main() {
   // midi -> { velocity, onTime }. params comes from the debug panel.
   function feedNotes(notes, params, now) {
     angEnergy.fill(0); angR.fill(0); angG.fill(0); angB.fill(0); angW.fill(0);
-    angOct.fill(0); chromaRaw.fill(0);
+    chromaRaw.fill(0);
 
     for (const [midi, note] of notes) {
       const map = NC.noteToColour(midi, note.velocity, params);
       const pc = map.pcIndex;
-      const octNorm = Math.min(1, Math.max(0,
-        (map.octave - params.octaveLow) / Math.max(1, params.octaveHigh - params.octaveLow)));
       // MIDI notes are a perfectly constant (DC) signal, so with steady energy
       // every history row is identical and the trail renders frozen. Real audio
       // jitters, which is what makes waveloop's trails flow. We synthesize that
@@ -549,41 +477,31 @@ void main() {
       const band = octToBand(map.octave);
       const centerBin = pcToAngleBin(pc);
 
-      // Octave-colour pulse: the note breathes on a timer between its base
-      // chromesthesia hue and an octave-shaded target. The target is defined
-      // RELATIVE TO A REFERENCE OCTAVE (C4-ish, MIDI octave 4): exactly at the
-      // reference the target == base, so those notes DO NOT pulse at all. Below
-      // it the target darkens/deepens the hue; above it the target brightens
-      // toward white. Distance from the reference sets how far the colour
-      // travels, so a held note always breathes to the same octave-fixed colour
-      // (an octave tint, not a velocity flicker). At the reference, no pulse.
+      // Octave colour: the note's colour is its base chromesthesia hue, shaded
+      // for its octave within a bounded brightness range so it never looks bad.
+      // Relative to a reference octave (C4, MIDI octave 4): C4 = the pure base
+      // hue (100%); lower octaves scale down toward OCT_MIN, higher octaves up
+      // toward OCT_MAX (and lift toward white). Static - no pulsing. The colour
+      // is ALWAYS present (never black, never blown out).
       const REF_OCTAVE = 4;
-      const octOffset = map.octave - REF_OCTAVE;   // <0 low, 0 ref, >0 high
-      // amount of colour travel, capped a few octaves out
-      const octAmt = Math.max(-1, Math.min(1, octOffset / 3));
-      let tr, tg, tb;
+      const OCT_MIN = params.octaveLowBrightness;   // lowest octaves' brightness
+      const OCT_MAX = params.octaveHighBrightness;  // highest octaves' brightness
+      const octAmt = Math.max(-1, Math.min(1, (map.octave - REF_OCTAVE) / 3));
+      let cr, cg, cb;
       if (octAmt >= 0) {
-        // high octaves: lift toward white
-        tr = map.core[0] + (1 - map.core[0]) * octAmt;
-        tg = map.core[1] + (1 - map.core[1]) * octAmt;
-        tb = map.core[2] + (1 - map.core[2]) * octAmt;
+        // high octaves: scale up and lift toward white
+        const scale = 1 + (OCT_MAX - 1) * octAmt;
+        const white = 0.35 * octAmt;   // partial white lift for airiness up high
+        cr = Math.min(1, map.core[0] * scale + white);
+        cg = Math.min(1, map.core[1] * scale + white);
+        cb = Math.min(1, map.core[2] * scale + white);
       } else {
-        // low octaves: deepen toward black (stay in hue, get darker)
-        const k = 1 + octAmt;            // octAmt in [-1,0] -> k in [0,1]
-        tr = map.core[0] * k;
-        tg = map.core[1] * k;
-        tb = map.core[2] * k;
+        // low octaves: a darker version of the base hue, floored at OCT_MIN
+        const scale = 1 + (1 - OCT_MIN) * octAmt;   // octAmt in [-1,0] -> [OCT_MIN,1]
+        cr = map.core[0] * scale;
+        cg = map.core[1] * scale;
+        cb = map.core[2] * scale;
       }
-      // triangle wave over the pulse period, shaped by sharpness
-      const period = Math.max(0.05, params.octaveColourPulsePeriod);
-      const tri = 1 - Math.abs(2 * ((now / period) % 1) - 1);   // 0..1..0
-      const sharp = Math.min(1, Math.max(0, params.octaveColourPulseSharpness));
-      const edge = 0.5 - 0.49 * sharp;
-      const t = smoothstep(edge, 1 - edge, tri);
-      // at the reference octave, tr==core so this is a no-op (no pulse)
-      const cr = map.core[0] + (tr - map.core[0]) * t;
-      const cg = map.core[1] + (tg - map.core[1]) * t;
-      const cb = map.core[2] + (tb - map.core[2]) * t;
 
       // paint a Gaussian around the pitch-class spoke so trails read as smooth
       // arcs, not single-column spikes (mirrors foldBand's blur). The profile
@@ -606,7 +524,6 @@ void main() {
         angEnergy[idx] += g;
         angR[idx] += cr * g; angG[idx] += cg * g; angB[idx] += cb * g;
         angW[idx] += g;
-        if (map.brightness > angOct[ai]) angOct[ai] = octNorm;
       }
       chromaRaw[pc] += map.intensity;   // chord detection uses steady energy
     }
@@ -623,9 +540,6 @@ void main() {
       dispR[i] += (tr - dispR[i]) * 0.4;
       dispG[i] += (tg - dispG[i]) * 0.4;
       dispB[i] += (tb - dispB[i]) * 0.4;
-    }
-    for (let a = 0; a < ANG; a++) {
-      dispOct[a] += (angOct[a] - dispOct[a]) * (angOct[a] > dispOct[a] ? 0.5 : 0.16);
     }
 
     if (now - lastRowAt > TRAIL_SECONDS) lastRowAt = now - ROW_DT;
@@ -653,20 +567,6 @@ void main() {
       }
     }
     if (pushed) rasterTrails();
-  }
-
-  // Upload the per-angle octave brightness to u_rim.
-  function uploadRim() {
-    for (let a = 0; a < ANG; a++) {
-      const v = Math.min(255, Math.max(0, dispOct[a] * 255)) | 0;
-      for (let t = 0; t < RIMT; t++) rimPix[t * ANG + a] = v;
-    }
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, rimTex);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, ANG, RIMT,
-      gl.LUMINANCE, gl.UNSIGNED_BYTE, rimPix);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, histTex);
   }
 
   // smooth chroma for chord detection
@@ -704,15 +604,11 @@ void main() {
 
     resize();
     pushHistory(now);
-    uploadRim();
 
     gl.uniform2f(U.u_res, canvas.width, canvas.height);
     gl.uniform1f(U.u_time, now);
     gl.uniform1f(U.u_level, level);
     gl.uniform1f(U.u_beat, beat);
-    gl.uniform1f(U.u_bandThick, params.bandThickness);
-    gl.uniform1f(U.u_coreRatio, params.coreBandRatio);
-    gl.uniform1f(U.u_accentSat, params.accentSaturation);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
@@ -725,11 +621,9 @@ void main() {
     return m;
   }
   function debugState() {
-    let dm = 0, om = 0, rm = 0;
+    let dm = 0;
     for (let i = 0; i < dispE.length; i++) if (dispE[i] > dm) dm = dispE[i];
-    for (let a = 0; a < ANG; a++) if (dispOct[a] > om) om = dispOct[a];
-    for (let i = 0; i < rimPix.length; i++) if (rimPix[i] > rm) rm = rimPix[i];
-    return { histHead, peakDispE: dm, peakDispOct: om, peakRimPix: rm };
+    return { histHead, peakDispE: dm };
   }
   // normalized deposited colour at the brightest bin (for pulse verification)
   function sampleColour() {

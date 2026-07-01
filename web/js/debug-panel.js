@@ -10,15 +10,8 @@ const STORAGE_KEY = 'chromesthesia.celParams';
 
 // Slider spec: [key, label, min, max, step, toDisplay]
 const SLIDERS = [
-  ['bandThickness',   'band thickness',     0, 1,  0.01, (v) => `${Math.round(v * 100)}%`],
-  ['coreBandRatio',   'core / band ratio',  0, 1,  0.01, (v) => `${Math.round(v * 100)}%`],
-  ['octaveLow',       'low octave',         0, 8,  1,    (v) => `${v}`],
-  ['octaveHigh',      'high octave',        1, 9,  1,    (v) => `${v}`],
-  ['lowBright',       'low octave bright',  0, 1,  0.01, (v) => `${Math.round(v * 100)}%`],
-  ['highBright',      'high octave bright', 0, 1,  0.01, (v) => `${Math.round(v * 100)}%`],
-  ['accentSaturation','accent saturation',  0, 1,  0.01, (v) => `${Math.round(v * 100)}%`],
-  ['octaveColourPulsePeriod',    'oct pulse period', 0.1, 4, 0.05, (v) => `${v.toFixed(2)}s`],
-  ['octaveColourPulseSharpness', 'oct pulse sharp',  0,   1, 0.01, (v) => `${Math.round(v * 100)}%`],
+  ['octaveLowBrightness',  'low octave bright',  0.2, 1.0, 0.01, (v) => `${Math.round(v * 100)}%`],
+  ['octaveHighBrightness', 'high octave bright',  1.0, 1.8, 0.01, (v) => `${Math.round(v * 100)}%`],
 ];
 
 class DebugPanel {

@@ -49,12 +49,14 @@ test('C#4 resolves via flat spelling Db', () => {
   colourEq(r.core, [0.5, 0.65, 0], 'Db core');
 });
 
-// Octave affects the ACCENT brightness, never the core colour.
-test('same note different octave: identical core, brighter accent up high', () => {
+// The base core colour is the note's identity and does NOT change with octave
+// (octave brightness shading is applied downstream in the visualizer feeder).
+test('same note different octave: identical core colour', () => {
   const low = NC.noteToColour(48, 1.0);   // C3
   const high = NC.noteToColour(84, 1.0);  // C6
   colourEq(low.core, high.core, 'core identical across octaves');
-  assert.ok(high.brightness > low.brightness, 'higher octave brighter accent');
+  assert.strictEqual(low.octave, 3);
+  assert.strictEqual(high.octave, 6);
 });
 
 // Velocity toggle

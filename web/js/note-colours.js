@@ -26,18 +26,13 @@ const SHARP_TO_FLAT = {
 // persists them to localStorage; noteToColour takes params explicitly so it
 // stays a pure function (testable without the DOM).
 const DEFAULT_PARAMS = {
-  bandThickness: 0.4,   // accent band width (fraction of the note footprint)
-  coreBandRatio: 0.55,  // split of footprint between core (this) and band
-  octaveLow: 1,         // octave mapped to the darkest accent
-  octaveHigh: 7,        // octave mapped to the brightest accent
-  lowBright: 0.25,      // accent brightness floor (at/below octaveLow)
-  highBright: 1.0,      // accent brightness ceiling (at/above octaveHigh)
-  accentSaturation: 0.7,// how much of the core hue the accent keeps (vs white)
-  velocityIntensity: true, // MIDI velocity drives glow intensity
-  // The whole note pulses in colour between its base chromesthesia hue and its
-  // octave-shaded hue, so octave reads as what the colour breathes toward.
-  octaveColourPulsePeriod: 1.0,    // seconds per full base->octave->base cycle
-  octaveColourPulseSharpness: 0.5, // 0 = smooth sine-like fade, 1 = near-hard toggle
+  // Octave shading: a note's colour is its chromesthesia hue, brightness-shaded
+  // for its octave relative to the reference octave (C4 = 100%). These bound the
+  // shading so it never looks bad - low octaves darker but vivid, high octaves
+  // brighter toward white.
+  octaveLowBrightness: 0.60,   // brightness of the lowest octaves (0..1)
+  octaveHighBrightness: 1.30,  // brightness of the highest octaves (1..~1.6)
+  velocityIntensity: true,     // MIDI velocity drives glow intensity
 };
 
 let COLOURS = null;          // { 'A': [r,g,b], ... } flat-named, 0..1
@@ -78,48 +73,25 @@ function coreColourForPitchClass(pcIndex) {
   return c ? [c[0], c[1], c[2]] : [0.5, 0.5, 0.5];
 }
 
-// Map an octave to an accent brightness in [0,1] via the low->high ramp.
-function octaveBrightness(octave, params) {
-  const lo = params.octaveLow, hi = params.octaveHigh;
-  let t;
-  if (hi <= lo) t = 1;
-  else t = (octave - lo) / (hi - lo);
-  t = Math.min(1, Math.max(0, t));
-  return params.lowBright + (params.highBright - params.lowBright) * t;
-}
-
 // clamp helper
 function clamp01(x) { return Math.min(1, Math.max(0, x)); }
 
-// The pure mapping. Given a MIDI note number, its velocity (0..1), and the cel
-// params, return the core colour, the octave-accent band colour, and the glow
-// intensity. Colours are [r,g,b] in 0..1.
+// The pure mapping. Given a MIDI note number and its velocity (0..1), return
+// the note's base chromesthesia colour, its pitch class and octave, and the
+// glow intensity. The octave BRIGHTNESS shading is applied downstream in the
+// visualizer's feeder (feedNotes), which knows the reference octave and the
+// low/high brightness params.
 //
-//   core      : pure chromesthesia colour for the pitch class
-//   accent    : core hue scaled toward the octave brightness, desaturated
-//               toward white by (1 - accentSaturation); this is the single
-//               hard-edged cel band around the core
+//   core      : pure chromesthesia colour for the pitch class [r,g,b] 0..1
+//   pcIndex   : pitch class index (0 = A)
+//   octave    : scientific-pitch octave (C4 = 4)
 //   intensity : 0..1 glow multiplier (velocity-driven if enabled)
 function noteToColour(midi, velocity, params = DEFAULT_PARAMS) {
   const pc = midiToPitchClassIndex(midi);
   const octave = midiToOctave(midi);
   const core = coreColourForPitchClass(pc);
-  const bright = octaveBrightness(octave, params);
-
-  // Accent = core hue scaled by octave brightness, then lifted toward white by
-  // (1 - accentSaturation) so higher octaves read as a brighter, slightly
-  // whiter rim while still carrying the note's hue.
-  const s = params.accentSaturation;
-  const whiteLift = (1 - s) * bright;
-  const accent = [
-    clamp01(core[0] * bright + whiteLift),
-    clamp01(core[1] * bright + whiteLift),
-    clamp01(core[2] * bright + whiteLift),
-  ];
-
   const intensity = params.velocityIntensity ? clamp01(velocity) : 1.0;
-
-  return { core, accent, intensity, pcIndex: pc, octave, brightness: bright };
+  return { core, intensity, pcIndex: pc, octave };
 }
 
 // Export for both browser (window/global) and Node (tests).
@@ -127,7 +99,7 @@ const NoteColours = {
   PITCH_CLASSES, SHARP_TO_FLAT, DEFAULT_PARAMS,
   loadNoteColours, setNoteColours,
   midiToPitchClassIndex, midiToOctave,
-  coreColourForPitchClass, octaveBrightness, noteToColour,
+  coreColourForPitchClass, noteToColour,
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = NoteColours;
