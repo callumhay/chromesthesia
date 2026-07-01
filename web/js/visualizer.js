@@ -511,6 +511,12 @@ void main() {
   const chroma = new Float32Array(12);
   const chromaRaw = new Float32Array(12);
 
+  // GLSL-style smoothstep, for the octave-colour pulse shaping.
+  function smoothstep(e0, e1, x) {
+    if (e1 <= e0) return x < e0 ? 0 : 1;
+    const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+    return t * t * (3 - 2 * t);
+  }
   // pitch class index (0=A) -> angular bin center. A at 12 o'clock.
   function pcToAngleBin(pc) { return (pc / 12) * ANG; }
   // octave -> register band (0..NREG-1), low octave inner.
@@ -542,7 +548,42 @@ void main() {
       const energy = map.intensity * attack * shimmer;      // time-varying glow
       const band = octToBand(map.octave);
       const centerBin = pcToAngleBin(pc);
-      const [cr, cg, cb] = map.core;
+
+      // Octave-colour pulse: the note breathes on a timer between its base
+      // chromesthesia hue and an octave-shaded target. The target is defined
+      // RELATIVE TO A REFERENCE OCTAVE (C4-ish, MIDI octave 4): exactly at the
+      // reference the target == base, so those notes DO NOT pulse at all. Below
+      // it the target darkens/deepens the hue; above it the target brightens
+      // toward white. Distance from the reference sets how far the colour
+      // travels, so a held note always breathes to the same octave-fixed colour
+      // (an octave tint, not a velocity flicker). At the reference, no pulse.
+      const REF_OCTAVE = 4;
+      const octOffset = map.octave - REF_OCTAVE;   // <0 low, 0 ref, >0 high
+      // amount of colour travel, capped a few octaves out
+      const octAmt = Math.max(-1, Math.min(1, octOffset / 3));
+      let tr, tg, tb;
+      if (octAmt >= 0) {
+        // high octaves: lift toward white
+        tr = map.core[0] + (1 - map.core[0]) * octAmt;
+        tg = map.core[1] + (1 - map.core[1]) * octAmt;
+        tb = map.core[2] + (1 - map.core[2]) * octAmt;
+      } else {
+        // low octaves: deepen toward black (stay in hue, get darker)
+        const k = 1 + octAmt;            // octAmt in [-1,0] -> k in [0,1]
+        tr = map.core[0] * k;
+        tg = map.core[1] * k;
+        tb = map.core[2] * k;
+      }
+      // triangle wave over the pulse period, shaped by sharpness
+      const period = Math.max(0.05, params.octaveColourPulsePeriod);
+      const tri = 1 - Math.abs(2 * ((now / period) % 1) - 1);   // 0..1..0
+      const sharp = Math.min(1, Math.max(0, params.octaveColourPulseSharpness));
+      const edge = 0.5 - 0.49 * sharp;
+      const t = smoothstep(edge, 1 - edge, tri);
+      // at the reference octave, tr==core so this is a no-op (no pulse)
+      const cr = map.core[0] + (tr - map.core[0]) * t;
+      const cg = map.core[1] + (tg - map.core[1]) * t;
+      const cb = map.core[2] + (tb - map.core[2]) * t;
 
       // paint a Gaussian around the pitch-class spoke so trails read as smooth
       // arcs, not single-column spikes (mirrors foldBand's blur). The profile
@@ -690,8 +731,15 @@ void main() {
     for (let i = 0; i < rimPix.length; i++) if (rimPix[i] > rm) rm = rimPix[i];
     return { histHead, peakDispE: dm, peakDispOct: om, peakRimPix: rm };
   }
+  // normalized deposited colour at the brightest bin (for pulse verification)
+  function sampleColour() {
+    let bi = 0, bw = 0;
+    for (let i = 0; i < angW.length; i++) if (angW[i] > bw) { bw = angW[i]; bi = i; }
+    if (bw < 1e-6) return null;
+    return [angR[bi] / bw, angG[bi] / bw, angB[bi] / bw].map((v) => Math.round(v * 255));
+  }
 
-  return { render, pulse, chroma, ANG, peakEnergy, debugState };
+  return { render, pulse, chroma, ANG, peakEnergy, debugState, sampleColour };
 }
 
 if (typeof window !== 'undefined') window.createVisualizer = createVisualizer;

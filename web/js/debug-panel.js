@@ -17,6 +17,8 @@ const SLIDERS = [
   ['lowBright',       'low octave bright',  0, 1,  0.01, (v) => `${Math.round(v * 100)}%`],
   ['highBright',      'high octave bright', 0, 1,  0.01, (v) => `${Math.round(v * 100)}%`],
   ['accentSaturation','accent saturation',  0, 1,  0.01, (v) => `${Math.round(v * 100)}%`],
+  ['octaveColourPulsePeriod',    'oct pulse period', 0.1, 4, 0.05, (v) => `${v.toFixed(2)}s`],
+  ['octaveColourPulseSharpness', 'oct pulse sharp',  0,   1, 0.01, (v) => `${Math.round(v * 100)}%`],
 ];
 
 class DebugPanel {

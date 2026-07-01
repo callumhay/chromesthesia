@@ -49,7 +49,8 @@
   const viz = window.createVisualizer(canvas, () => params);
   const chord = new window.ChordReadout(document.getElementById('chordname'));
   // debug hook for verification (harmless in normal use)
-  window.__vizDebug = { peakEnergy: () => viz.peakEnergy(), state: () => viz.debugState() };
+  window.__vizDebug = { peakEnergy: () => viz.peakEnergy(), state: () => viz.debugState(),
+    sampleColour: () => viz.sampleColour() };
 
   function litPitchClass(pc, on) {
     // light the wheel label of any active pitch class

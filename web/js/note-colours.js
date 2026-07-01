@@ -34,6 +34,10 @@ const DEFAULT_PARAMS = {
   highBright: 1.0,      // accent brightness ceiling (at/above octaveHigh)
   accentSaturation: 0.7,// how much of the core hue the accent keeps (vs white)
   velocityIntensity: true, // MIDI velocity drives glow intensity
+  // The whole note pulses in colour between its base chromesthesia hue and its
+  // octave-shaded hue, so octave reads as what the colour breathes toward.
+  octaveColourPulsePeriod: 1.0,    // seconds per full base->octave->base cycle
+  octaveColourPulseSharpness: 0.5, // 0 = smooth sine-like fade, 1 = near-hard toggle
 };
 
 let COLOURS = null;          // { 'A': [r,g,b], ... } flat-named, 0..1
