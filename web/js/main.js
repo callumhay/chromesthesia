@@ -43,11 +43,15 @@
   // --- active note state ---------------------------------------------------
   const notes = new Map();        // midi -> { velocity, onTime }
   let params = Object.assign({}, NC.DEFAULT_PARAMS);
+  let mode = 'midi';              // 'midi' | 'mic'
 
   // --- visualizer ----------------------------------------------------------
   const canvas = document.getElementById('gl');
   const viz = window.createVisualizer(canvas, () => params);
-  const chord = new window.ChordReadout(document.getElementById('chordname'));
+  const chordEl = document.getElementById('chordname');
+  const chord = new window.ChordReadout(chordEl);
+  const mic = window.createMicInput();
+  const micOut = { pcEnergy: new Float32Array(12), chroma: new Float32Array(12), level: 0 };
   // debug hook for verification (harmless in normal use)
   window.__vizDebug = { peakEnergy: () => viz.peakEnergy(), state: () => viz.debugState(),
     sampleColour: () => viz.sampleColour() };
@@ -60,6 +64,15 @@
     const active = new Set();
     for (const midi of notes.keys()) active.add(NC.midiToPitchClassIndex(midi));
     wheelSpans.forEach((s, i) => s.classList.toggle('lit', active.has(i)));
+  }
+  // mic mode: light wheel labels for the pitch classes carrying real energy.
+  // An absolute floor keeps ambient noise (very low energy) from lighting
+  // everything; above it, light the classes near the current peak.
+  function refreshLitFromEnergy(pcEnergy) {
+    let maxE = 0;
+    for (let i = 0; i < 12; i++) if (pcEnergy[i] > maxE) maxE = pcEnergy[i];
+    if (maxE < 1e-3) { wheelSpans.forEach((s) => s.classList.remove('lit')); return; }
+    wheelSpans.forEach((s, i) => s.classList.toggle('lit', pcEnergy[i] / maxE > 0.4));
   }
 
   // live readout of active notes + the octave value driving the cel halo
@@ -89,32 +102,69 @@
   }
 
   // --- inputs: Web MIDI + keyboard fallback --------------------------------
-  const midiChip = document.getElementById('midiChip');
-  const midiText = document.getElementById('midiText');
-  function setMidiStatus(text, connected) {
-    midiText.textContent = text;
-    midiChip.classList.toggle('connected', !!connected);
+  const statusChip = document.getElementById('statusChip');
+  const statusText = document.getElementById('statusText');
+  function setStatus(text, connected) {
+    statusText.textContent = text;
+    statusChip.classList.toggle('connected', !!connected);
   }
+  let midiStatus = { text: 'waiting for midi', connected: false };
 
   const midi = new window.MidiInput({
     onNoteOn: noteOn,
     onNoteOff: noteOff,
     onStatus: (st) => {
       if (st.connected) {
-        setMidiStatus(st.devices && st.devices[0] ? st.devices[0] : 'midi', true);
+        midiStatus = { text: st.devices && st.devices[0] ? st.devices[0] : 'midi', connected: true };
       } else if (st.reason === 'no-web-midi') {
-        setMidiStatus('no web-midi (use keys)', false);
+        midiStatus = { text: 'no web-midi (use keys)', connected: false };
       } else if (st.reason === 'denied') {
-        setMidiStatus('midi denied', false);
+        midiStatus = { text: 'midi denied', connected: false };
       } else {
-        setMidiStatus('waiting for midi', false);
+        midiStatus = { text: 'waiting for midi', connected: false };
       }
+      if (mode === 'midi') setStatus(midiStatus.text, midiStatus.connected);
     },
   });
   midi.connect();
 
   const keys = new window.KeyboardInput({ onNoteOn: noteOn, onNoteOff: noteOff });
   keys.enable();
+
+  // --- mode switch (MIDI / Mic) --------------------------------------------
+  const midiBtn = document.getElementById('modeMidiBtn');
+  const micBtn = document.getElementById('modeMicBtn');
+
+  async function setMode(next) {
+    if (next === mode) return;
+    mode = next;
+    midiBtn.classList.toggle('active', mode === 'midi');
+    micBtn.classList.toggle('active', mode === 'mic');
+    // clear any lingering visual/readout state from the previous mode
+    chordEl.textContent = '';
+    wheelSpans.forEach((s) => s.classList.remove('lit'));
+
+    if (mode === 'mic') {
+      keys.disable();
+      setStatus('starting mic…', false);
+      try {
+        await mic.enable();
+        setStatus('mic', true);
+      } catch (e) {
+        setStatus('mic denied', false);
+        setMode('midi');   // fall back
+      }
+    } else {
+      mic.disable();
+      keys.enable();
+      // release any held notes so they don't hang across the switch
+      for (const m of [...notes.keys()]) noteOff(m);
+      setStatus(midiStatus.text, midiStatus.connected);
+    }
+  }
+  midiBtn.addEventListener('click', () => setMode('midi'));
+  micBtn.addEventListener('click', () => setMode('mic'));
+  setStatus(midiStatus.text, midiStatus.connected);
 
   // --- debug panel ---------------------------------------------------------
   const panel = new window.DebugPanel({
@@ -133,9 +183,21 @@
 
   // --- render loop ---------------------------------------------------------
   function frame(now) {
-    viz.render(now, notes);
-    // chord readout is driven by the EXACT held MIDI notes (no filtering)
-    chord.update(notes.keys());
+    if (mode === 'mic') {
+      mic.analyse(now / 1000, micOut);
+      viz.renderMic(now, micOut.pcEnergy);
+      refreshLitFromEnergy(micOut.pcEnergy);
+      // mic chord is a fuzzy ESTIMATE from the smoothed spectrum
+      const name = mic.detectChordName();
+      if (name !== chordEl.textContent) {
+        chordEl.textContent = name || '';
+        chordEl.style.opacity = name ? '1' : '0';
+      }
+    } else {
+      viz.renderMidi(now, notes);
+      // MIDI chord readout is driven by the EXACT held notes (no filtering)
+      chord.update(notes.keys());
+    }
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

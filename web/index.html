@@ -21,8 +21,12 @@
 </div>
 
 <header>
-  <span class="title">chromesthesia · midi</span>
-  <span class="chip" id="midiChip"><span class="led"></span><span id="midiText">no midi</span></span>
+  <span class="title">chromesthesia</span>
+  <span class="modeswitch">
+    <button id="modeMidiBtn" class="modebtn active">MIDI</button>
+    <button id="modeMicBtn" class="modebtn">Mic</button>
+  </span>
+  <span class="chip" id="statusChip"><span class="led"></span><span id="statusText">no midi</span></span>
 </header>
 
 <div id="dsp" class="panel">
@@ -53,6 +57,7 @@
 <script src="./js/visualizer.js"></script>
 <script src="./js/midi-input.js"></script>
 <script src="./js/keyboard-input.js"></script>
+<script src="./js/mic-input.js"></script>
 <script src="./js/debug-panel.js"></script>
 <script src="./js/main.js"></script>
 </body>

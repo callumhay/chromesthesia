@@ -489,6 +489,33 @@ void main() {
     return Math.min(NREG - 1, (o * NREG) | 0);
   }
 
+  // Deposit one coloured energy blob at a pitch class's spoke into the per-frame
+  // accumulators, and record it for the background glow. Shared by the MIDI and
+  // mic feeders. pc: pitch-class index (0=A); colour: [r,g,b] 0..1; energy: the
+  // display energy peak; band: register band 0..NREG-1; plumeSize: angular width
+  // multiplier; glowWeight: this pitch class's weight for the background glow.
+  function depositBlob(pc, colour, energy, band, plumeSize, glowWeight) {
+    const [cr, cg, cb] = colour;
+    // Gaussian around the spoke; peak (d=0) = energy so a loud note towers.
+    const sig = 3.4 * (plumeSize || 1.0);
+    const rad = Math.ceil(sig * 2.5);
+    const inv2s2 = 1 / (2 * sig * sig);
+    const base = Math.round(pcToAngleBin(pc));
+    for (let d = -rad; d <= rad; d++) {
+      const ai = ((base + d) % ANG + ANG) % ANG;
+      const g = Math.exp(-d * d * inv2s2) * energy;
+      const idx = band * ANG + ai;
+      angEnergy[idx] += g;
+      angR[idx] += cr * g; angG[idx] += cg * g; angB[idx] += cb * g;
+      angW[idx] += g;
+    }
+    // strongest contribution per pitch class drives the background glow
+    const gi = pc * 4;
+    if (glowWeight > pcGlow[gi + 3]) {
+      pcGlow[gi] = cr; pcGlow[gi + 1] = cg; pcGlow[gi + 2] = cb; pcGlow[gi + 3] = glowWeight;
+    }
+  }
+
   // Deposit the active notes into the per-frame accumulators. notes is a Map
   // midi -> { velocity, onTime }. params comes from the debug panel.
   function feedNotes(notes, params, now) {
@@ -509,7 +536,6 @@ void main() {
       const shimmer = 1.0 + 0.06 * Math.sin(now * 7.0 + midi);
       const energy = map.intensity * attack * shimmer;      // time-varying glow
       const band = octToBand(map.octave);
-      const centerBin = pcToAngleBin(pc);
 
       // Octave colour: the note's colour is its base chromesthesia hue, shaded
       // for its octave within a bounded brightness range so it never looks bad.
@@ -537,37 +563,49 @@ void main() {
         cb = map.core[2] * scale;
       }
 
-      // paint a Gaussian around the pitch-class spoke so trails read as smooth
-      // arcs, not single-column spikes (mirrors foldBand's blur). The profile
-      // is NOT area-normalized: the PEAK (d=0) must equal the note's display
-      // energy so the shader's rim stack towers like a fundamental. Dividing by
-      // the Gaussian area (as an FFT fold would, to conserve spectral mass)
-      // shrank the peak ~7x and left every note a sliver.
-      // angular lobe/plume width: a spike (sig~2) is a sliver, a fat blob
-      // (sig~6) swamps the trail motion. ~3.4 gives a clean petal; the
-      // plumeSize debug param scales it so plumes can be made narrower/wider.
-      const sig = 3.4 * (params.plumeSize || 1.0);
-      const rad = Math.ceil(sig * 2.5);
-      const inv2s2 = 1 / (2 * sig * sig);
-      const peak = energy * NOTE_ENERGY;
-      const base = Math.round(centerBin);
-      for (let d = -rad; d <= rad; d++) {
-        const ai = ((base + d) % ANG + ANG) % ANG;
-        const g = Math.exp(-d * d * inv2s2) * peak;
-        const idx = band * ANG + ai;
-        angEnergy[idx] += g;
-        angR[idx] += cr * g; angG[idx] += cg * g; angB[idx] += cb * g;
-        angW[idx] += g;
-      }
-
-      // accumulate this note's octave-shaded colour into its pitch class for
-      // the background glow (keep the strongest contribution per pitch class)
-      const gi = pc * 4;
-      const w = map.intensity;
-      if (w > pcGlow[gi + 3]) {
-        pcGlow[gi] = cr; pcGlow[gi + 1] = cg; pcGlow[gi + 2] = cb; pcGlow[gi + 3] = w;
-      }
+      depositBlob(pc, [cr, cg, cb], energy * NOTE_ENERGY, band,
+                  params.plumeSize, map.intensity);
     }
+  }
+
+  // Mic feeder: deposit per-pitch-class spectral energy (from mic-input's
+  // analyse) coloured by each pitch class's chromesthesia hue. The spectrum has
+  // no reliable octave, so there is no octave shading - just the base hue,
+  // brightness by energy - and everything lands in the mid register band.
+  const MIC_BAND = (NREG / 2) | 0;
+  // AGC state for the mic fold, ported from waveloop's frame-loop display AGC:
+  // a running reference (85th-percentile energy) with a hard floor so silence
+  // divides by the floor and stays dark instead of being boosted to noise.
+  let pcRef = 2e-4;
+  const pcSort = new Float32Array(12);
+  function feedPitchClasses(pcEnergy, dt, params) {
+    angEnergy.fill(0); angR.fill(0); angG.fill(0); angB.fill(0); angW.fill(0);
+    pcGlow.fill(0);
+
+    // waveloop's display AGC: reference = 85th percentile of the per-pitch-class
+    // energy (with a 0.2*max floor), eased over time, then HARD-FLOORED at 2e-4
+    // so near-silence divides by the floor and stays dim instead of being
+    // normalized up to noise (waveloop frame loop, "gate so silence isn't
+    // boosted to noise"). This alone is waveloop's silence handling - no extra
+    // SNR gate, which caused a cold-start delay and mid-signal blackouts.
+    pcSort.set(pcEnergy);
+    pcSort.sort();
+    const stat = Math.max(pcSort[(12 * 0.85) | 0], pcSort[11] * 0.2);
+    pcRef += (stat - pcRef) * (1 - Math.exp(-dt / (stat > pcRef ? 0.25 : 4.0)));
+    if (pcRef < 2e-4) pcRef = 2e-4;
+
+    let maxDisplay = 0;
+    for (let pc = 0; pc < 12; pc++) {
+      const x = pcEnergy[pc] / pcRef;
+      const e = E_MAX * x / (x + 1.5);       // kneed display energy, 0..E_MAX
+      if (e > maxDisplay) maxDisplay = e;
+      if (e < 0.05) continue;
+      const colour = NC.coreColourForPitchClass(pc);
+      depositBlob(pc, colour, e, MIC_BAND, params.plumeSize, Math.min(1, e / E_MAX));
+    }
+    // background-aurora level from the AGC'd display energy, so silence (which
+    // divides by the floored pcRef and stays near 0) leaves the aurora dark.
+    return Math.min(1, maxDisplay / E_MAX);
   }
 
   // Push the current smoothed frame into the history ring (like waveloop's
@@ -623,26 +661,19 @@ void main() {
 
   let level = 0, beat = 0, lastNow = 0;
 
-  function render(now, notes) {
-    now = now / 1000;
-    const dt = Math.min(now - lastNow, 0.1);
-    lastNow = now;
-    const params = getParams();
-
-    feedNotes(notes, params, now);
-
-    // overall level (drives the aurora/backdrop) and a soft beat on onsets
-    let tot = 0;
-    for (const [, n] of notes) tot += n.velocity;
-    level += (Math.min(tot, 1) - level) * 0.15;
+  // Shared post-feed rendering: history push, glow smoothing, uniforms, draw.
+  // The accumulators (angEnergy/angR/G/B/angW, pcGlow) are already filled by the
+  // active mode's feeder. targetLevel drives the background aurora brightness.
+  function present(now, targetLevel, dt) {
+    level += (Math.min(targetLevel, 1) - level) * 0.15;
     beat = Math.max(0, beat - dt * 3.2);
 
     resize();
     pushHistory(now);
 
     // smooth the per-pitch-class glow toward the live frame, and stage it into
-    // the uniform buffer (colour rgb in xyz, weight in w). Weight rises fast
-    // (note attack) and falls gently (glow lingers as the note releases).
+    // the uniform buffer (colour rgb in xyz, weight in w). Weight rises fast and
+    // falls gently so the glow lingers as a note releases.
     for (let i = 0; i < 12; i++) {
       const b = i * 4;
       for (let c = 0; c < 3; c++) {
@@ -662,6 +693,26 @@ void main() {
     gl.uniform1f(U.u_beat, beat);
     gl.uniform4fv(U.u_pcGlow, pcGlowUniform);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  // MIDI mode: feed exact held notes.
+  function renderMidi(now, notes) {
+    now = now / 1000;
+    const dt = Math.min(now - lastNow, 0.1);
+    lastNow = now;
+    feedNotes(notes, getParams(), now);
+    let tot = 0;
+    for (const [, n] of notes) tot += n.velocity;
+    present(now, tot, dt);
+  }
+
+  // Mic mode: feed per-pitch-class spectral energy from mic-input's analyse.
+  function renderMic(now, pcEnergy) {
+    now = now / 1000;
+    const dt = Math.min(now - lastNow, 0.1);
+    lastNow = now;
+    const auroraLevel = feedPitchClasses(pcEnergy, dt, getParams());
+    present(now, auroraLevel, dt);
   }
 
   function pulse() { beat = 1; }
@@ -685,7 +736,7 @@ void main() {
     return [angR[bi] / bw, angG[bi] / bw, angB[bi] / bw].map((v) => Math.round(v * 255));
   }
 
-  return { render, pulse, ANG, peakEnergy, debugState, sampleColour };
+  return { renderMidi, renderMic, pulse, ANG, peakEnergy, debugState, sampleColour };
 }
 
 if (typeof window !== 'undefined') window.createVisualizer = createVisualizer;
