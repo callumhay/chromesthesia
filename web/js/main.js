@@ -49,7 +49,8 @@
   const canvas = document.getElementById('gl');
   const viz = window.createVisualizer(canvas, () => params);
   const chordEl = document.getElementById('chordname');
-  const chord = new window.ChordReadout(chordEl);
+  const impliedEl = document.getElementById('impliedchord');
+  const chord = new window.ChordReadout(chordEl, impliedEl);
   const mic = window.createMicInput();
   const micOut = { pcEnergy: new Float32Array(12), chroma: new Float32Array(12), level: 0 };
   // debug hook for verification (harmless in normal use)
@@ -142,6 +143,8 @@
     micBtn.classList.toggle('active', mode === 'mic');
     // clear any lingering visual/readout state from the previous mode
     chordEl.textContent = '';
+    impliedEl.textContent = ''; impliedEl.style.opacity = '0';
+    chord.last = null; chord.lastImplied = null;
     wheelSpans.forEach((s) => s.classList.remove('lit'));
 
     if (mode === 'mic') {

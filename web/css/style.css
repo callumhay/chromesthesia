@@ -53,6 +53,15 @@ body {
   text-shadow: 0 0 18px var(--phos-dim), 0 0 50px rgba(70,255,200,0.15);
   transition: opacity 0.2s ease;
 }
+/* implied chord: smaller, dimmer, darker green - same CRT phosphor look */
+#impliedchord {
+  font-family: "VT323", ui-monospace, monospace;
+  font-size: 26px; line-height: 1; margin-top: 4px; min-height: 26px;
+  color: #2fae86;
+  text-shadow: 0 0 10px rgba(47,174,134,0.4);
+  transition: opacity 0.2s ease;
+  opacity: 0;
+}
 
 header {
   position: fixed; top: 0; left: 0; right: 0; z-index: 10;
