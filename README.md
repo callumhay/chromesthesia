@@ -25,16 +25,18 @@ at the repo root. Editing a colour there updates the LEDs and the web view.
 
 ## Web view
 
-The web view is self-contained (no build step). It must be served over HTTP,
-not opened as a `file://` URL, because it fetches `note_colours.json`.
-
-From the repo root:
+The web view is self-contained (no build step). Serving it over HTTP is
+recommended so it reads the shared `note_colours.json`. From the repo root:
 
 ```sh
 python3 -m http.server 8199
 ```
 
 Then open **http://localhost:8199/web/** in Chrome or Edge.
+
+It also works opened directly as a `file://` URL (double-clicking
+`web/index.html`): fetching `note_colours.json` is blocked there, so it falls
+back to a copy of the colours embedded in `web/js/note-colours.js`.
 
 ### Modes
 
@@ -96,7 +98,14 @@ Useful flags:
 colour per note. It is the single source of truth:
 
 - `NoteUtils.py` loads it for the LED app.
-- The web view fetches it at startup.
+- The web view fetches it at startup (with an embedded fallback for `file://`).
+
+After editing `note_colours.json`, regenerate the web view's embedded fallback
+so it stays in sync:
+
+```sh
+node scripts/embed-note-colours.js
+```
 
 ## Tests
 

@@ -87,4 +87,23 @@ test('MIDI octave numbering (A4 = 69, C-1 = 0)', () => {
   assert.strictEqual(NC.midiToOctave(0), -1);
 });
 
+// The embedded fallback (used when fetch is blocked, e.g. file://) must mirror
+// note_colours.json exactly, or a file:// load would show different colours
+// than a served load. This guards the two copies against drift.
+test('embedded fallback matches note_colours.json exactly', () => {
+  assert.deepStrictEqual(
+    NC.EMBEDDED_NOTE_COLOURS.circle_of_fifths, data.circle_of_fifths,
+    'circle_of_fifths differs between embedded copy and JSON'
+  );
+  const embKeys = Object.keys(NC.EMBEDDED_NOTE_COLOURS.colours).sort();
+  const jsonKeys = Object.keys(data.colours).sort();
+  assert.deepStrictEqual(embKeys, jsonKeys, 'colour keys differ');
+  for (const k of jsonKeys) {
+    assert.deepStrictEqual(
+      NC.EMBEDDED_NOTE_COLOURS.colours[k], data.colours[k],
+      `colour for ${k} differs between embedded copy and JSON`
+    );
+  }
+});
+
 console.log(`\n${passed} tests passed.`);

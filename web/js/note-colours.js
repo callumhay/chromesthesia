@@ -42,13 +42,47 @@ const DEFAULT_PARAMS = {
 let COLOURS = null;          // { 'A': [r,g,b], ... } flat-named, 0..1
 let CIRCLE_OF_FIFTHS = null; // array of flat names
 
-// Load the shared JSON. Returns a promise resolving to the loaded colour table.
+// Embedded copy of note_colours.json, used as a fallback when the fetch is
+// blocked (e.g. the page opened as a file:// URL, where browsers deny fetch of
+// local files). note_colours.json remains the single source of truth when
+// served; this copy must mirror it exactly. It is regenerated from the JSON by
+// `node scripts/embed-note-colours.js` and guarded by note-colours.test.js, so
+// it can't silently drift. Do not hand-edit the block between the markers.
+/* BEGIN EMBEDDED_NOTE_COLOURS (generated from note_colours.json) */
+const EMBEDDED_NOTE_COLOURS = {
+  "circle_of_fifths": ["A","E","B","Gb","Db","Ab","Eb","Bb","F","C","G","D"],
+  "colours": {
+    "A": [1,0,0],
+    "E": [1,0.35,0],
+    "B": [1,0.55,0],
+    "Gb": [1,1,0],
+    "Db": [0.5,0.65,0],
+    "Ab": [0,1,0.5],
+    "Eb": [0,1,1],
+    "Bb": [0,0.5,1],
+    "F": [0,0,1],
+    "C": [0.6,0,0.9],
+    "G": [1,0,1],
+    "D": [1,0,0.5]
+  }
+};
+/* END EMBEDDED_NOTE_COLOURS */
+
+// Load the shared colour table. Tries to fetch note_colours.json (the source of
+// truth when served over HTTP); if the fetch fails - most commonly because the
+// page was opened as a file:// URL - falls back to the embedded copy so the
+// view still works. Returns the loaded colour table.
 async function loadNoteColours(url = '../note_colours.json') {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`failed to load note colours: ${res.status}`);
-  const data = await res.json();
-  setNoteColours(data);
-  return data;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`status ${res.status}`);
+    const data = await res.json();
+    setNoteColours(data);
+    return data;
+  } catch (e) {
+    setNoteColours(EMBEDDED_NOTE_COLOURS);
+    return EMBEDDED_NOTE_COLOURS;
+  }
 }
 
 // Inject a colour table directly (used by tests and by loadNoteColours).
@@ -100,7 +134,7 @@ function noteToColour(midi, velocity, params = DEFAULT_PARAMS) {
 
 // Export for both browser (window/global) and Node (tests).
 const NoteColours = {
-  PITCH_CLASSES, SHARP_TO_FLAT, DEFAULT_PARAMS,
+  PITCH_CLASSES, SHARP_TO_FLAT, DEFAULT_PARAMS, EMBEDDED_NOTE_COLOURS,
   loadNoteColours, setNoteColours,
   midiToPitchClassIndex, midiToOctave,
   coreColourForPitchClass, noteToColour,
