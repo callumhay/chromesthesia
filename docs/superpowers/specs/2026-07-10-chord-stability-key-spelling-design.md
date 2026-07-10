@@ -76,7 +76,8 @@ and MIDI use **index 0 = C** (`pc = midi % 12`). `mic-input.js` and
 `note-colours.js` use **index 0 = A** (`NOTE_NAMES` / `PITCH_CLASSES`,
 `out.pcEnergy`). `key-spelling.js` works **internally in 0 = C** (Krumhansl
 profiles, MIDI, and `chord.js` all use it; only mic is the outlier). Both mic
-feeds convert before crossing in: `pcC = (pcA + 3) % 12` (A is pc 9 in 0=C). This
+feeds convert before crossing in: `pcC = (pcA + 9) % 12` (0=A index 0 is A, which
+sits at pc 9 in 0=C — verify: pcA 3 = C → pcC (3+9)%12 = 0 = C). This
 conversion is an explicit, named step — applied to `pcEnergy` before feeding the
 estimator, and to `detectChord`'s `root` (0=A) before it calls `Speller.spell`.
 
