@@ -31,7 +31,10 @@
 
 'use strict';
 
-const KS = (typeof require !== 'undefined')
+// Shared key-aware speller. Named distinctly (NOT `KS`) because chord.js also
+// declares a top-level `const KS`; classic browser scripts share one global
+// scope, so a duplicate `const KS` here would be a load-time SyntaxError.
+const KEY_SPELLING = (typeof require !== 'undefined')
   ? require('./key-spelling.js')
   : (typeof window !== 'undefined' ? window.KeySpelling : null);
 
@@ -529,7 +532,7 @@ function createMicInput() {
     // NOTE: `name` is spelled in 0=C (via the shared speller); `root`/`pcs`
     // stay 0=A for the visualizer.
     return {
-      name: KS.spell(rootPcC, getEstimatedKey()) + best.q.name,
+      name: KEY_SPELLING.spell(rootPcC, getEstimatedKey()) + best.q.name,
       root: best.root,
       pcs: best.q.ivs.map((iv) => (best.root + iv) % 12),
       conf: frac,   // fraction of energy on chord tones (~0.5 weak .. 1.0 pure)
