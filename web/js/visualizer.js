@@ -183,7 +183,12 @@ void main() {
   float s2 = eTot * eTot;
   float stackH = 0.006 + 0.30 * s2 / (s2 + 4.0);
   float xo = r - r0;
-  float aa = 0.003;
+  // Edge feather for the rim stack. A razor-thin 0.003 made the stack a hard-
+  // edged bright band sitting on the ring halo; at low sustained magnitude (a
+  // quiet note held a while) the stack is thin and its sharp ends clipped a dark
+  // notch into the halo fringe. A wider feather softens that without visibly
+  // blurring bright notes.
+  float aa = 0.012;
   float stk = smoothstep(-aa, aa, xo) - smoothstep(stackH - aa, stackH + aa, xo);
   if (stk > 0.001) {
     float bright = 0.25 + 0.85 * min(eTot, 2.2);
