@@ -31,6 +31,10 @@
 
 'use strict';
 
+const KS = (typeof require !== 'undefined')
+  ? require('./key-spelling.js')
+  : (typeof window !== 'undefined' ? window.KeySpelling : null);
+
 // Confidence gate + asymmetric hold hysteresis over the fuzzy per-frame chord
 // estimate, so the mic readout does not flicker. getSettings() returns live
 // { holdMs, minConfidence } so debug-panel changes take effect immediately.
@@ -70,9 +74,6 @@ function createMicInput() {
   // overtone-suppression peak table
   const PEAK_CAP = 80;
 
-  // pitch-class names, index 0 = A (matches the wheel's 12 o'clock)
-  const NOTE_NAMES = ['A', 'A#', 'B', 'C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#'];
-
   // one template per chord quality; all 12 roots are rotations of the chroma
   // vector, so we score template x rotated chroma (see detectChord).
   const QUALITIES = [
@@ -99,6 +100,11 @@ function createMicInput() {
 
   // mic chord readout stabilizer settings (mutated live by the debug panel)
   const chordSettings = { holdMs: 120, minConfidence: 0.6 };
+
+  // supplies the current estimated key (0=C convention) for chord-name spelling;
+  // set by the host (main.js). null => neutral default spelling.
+  let getEstimatedKey = () => null;
+  function setKeySource(fn) { getEstimatedKey = fn || (() => null); }
   const stabilizer = createChordStabilizer(() => chordSettings);
   let lastStableName = '';
 
@@ -519,8 +525,11 @@ function createMicInput() {
     let frac = 0;
     for (const iv of best.q.ivs) frac += c[(best.root + iv) % 12];
     if (frac < 0.5) return null;   // too much energy outside the chord tones
+    const rootPcC = (best.root + 9) % 12;               // 0=A -> 0=C (A is pc 9)
+    // NOTE: `name` is spelled in 0=C (via the shared speller); `root`/`pcs`
+    // stay 0=A for the visualizer.
     return {
-      name: NOTE_NAMES[best.root] + best.q.name,
+      name: KS.spell(rootPcC, getEstimatedKey()) + best.q.name,
       root: best.root,
       pcs: best.q.ivs.map((iv) => (best.root + iv) % 12),
       conf: frac,   // fraction of energy on chord tones (~0.5 weak .. 1.0 pure)
@@ -544,6 +553,7 @@ function createMicInput() {
     estimateStableChordName,  // stabilized name for the readout
     dsp,
     chordSettings,
+    setKeySource,             // host supplies the current estimated key for spelling
   };
 }
 
