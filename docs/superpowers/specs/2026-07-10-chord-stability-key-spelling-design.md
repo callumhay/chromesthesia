@@ -56,8 +56,16 @@ module boundary. The stabilizer's committed name and timers **reset on
 |------|-------|---------|-------------------|
 | `holdMs` | mic chord | **120 ms** | 0 … 500 ms |
 | `minConfidence` | mic chord | **0.6** | 0.4 … 0.9 |
-| key half-life | key est. | **4 s** | 1 … 8 s |
+| key half-life (MIDI) | key est. | **2 s** | 0.5 … 6 s |
+| key half-life (mic) | key est. | **4 s** | 1 … 8 s |
 | key-confidence threshold | key est. | *(tune in impl.)* | winner's lead over runner-up |
+
+The two half-lives reflect evidence quality: MIDI note-ons are clean discrete
+events, so the key settles (and spelling respells) faster; the mic feed is
+noisier and holds a longer window. The estimator applies whichever half-life
+matches the active mode. Note this affects only **spelling** latency — MIDI chord
+*matching* is always instant (no hysteresis on the MIDI path; the mic
+stabilizer's `holdMs` never runs in MIDI mode).
 
 ### Piece 2 — Key-aware note spelling
 
@@ -99,9 +107,10 @@ estimator, and to `detectChord`'s `root` (0=A) before it calls `Speller.spell`.
   **key-confidence threshold** (below). Correlation is scale-invariant, so the
   threshold is feed-independent; only the low-weight floor is on the normalized
   total. Method is named `estimateKey()` (a guess, per naming rules).
-- **Dials (debug panel):** decay half-life — default **4 s**; key-confidence
-  threshold — how far ahead the winning key must lead before it is trusted over
-  the flat default.
+- **Dials (debug panel):** decay half-life, **per mode** (MIDI default **2 s**,
+  mic default **4 s** — the estimator uses the active mode's value); key-
+  confidence threshold — how far ahead the winning key must lead before it is
+  trusted over the flat default.
 
 **`Speller`** — `spell(pc, estimatedKey)` → note name, `pc` in 0 = C.
 
@@ -188,9 +197,11 @@ mic frame ─► detectChord {name,conf} ─► stabilizer(holdMs, minConf) insi
 
 ## Consequences (accepted)
 
-1. A note's *spelling* can change ~1–2 s after it is played, as key context fills
-   in. Musically correct (the same pitch genuinely respells once the key is
-   clear); the readout is not frozen at press-time.
+1. A note's *spelling* can change after it is played, as key context fills in —
+   sooner in MIDI (~1 s, shorter half-life) than mic (~2 s). Musically correct
+   (the same pitch genuinely respells once the key is clear); the readout is not
+   frozen at press-time. This is the only thing that lags in MIDI mode — chord
+   *matching* stays instant.
 2. Mic chord changes lag by up to `holdMs` (120 ms default). This is the
    anti-jitter mechanism working; `holdMs` is tunable live to trade lag against
    stability.
