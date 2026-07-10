@@ -135,7 +135,9 @@ button:active { transform: translateY(1px); }
   font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
   color: var(--phos-dim); margin: 2px 0 6px;
 }
-.sub .tag { color: var(--phos); }
+/* subsection headers: dimmer than full phosphor, but brighter than the panel
+   title (--phos-dim, 0.35), so the hierarchy reads title < subsection < value */
+.sub .tag { color: rgba(70, 255, 200, 0.65); }
 
 .krow { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
 .krow .klabel {
