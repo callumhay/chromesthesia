@@ -190,8 +190,8 @@
       mic.analyse(now / 1000, micOut);
       viz.renderMic(now, micOut.pcEnergy);
       refreshLitFromEnergy(micOut.pcEnergy);
-      // mic chord is a fuzzy ESTIMATE from the smoothed spectrum
-      const name = mic.detectChordName();
+      // stabilized (flicker-free) chord name; stabilizer ran inside analyse()
+      const name = mic.estimateStableChordName();
       if (name !== chordEl.textContent) {
         chordEl.textContent = name || '';
         chordEl.style.opacity = name ? '1' : '0';

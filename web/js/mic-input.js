@@ -25,7 +25,7 @@
 //                 level: 0 };
 //   // each animation frame:
 //   mic.analyse(performance.now() / 1000, out);
-//   const chord = mic.detectChordName();   // e.g. "Cmaj7" or null
+//   const chord = mic.estimateStableChordName();   // committed name inside analyse(); '' = none
 //   // ...
 //   mic.disable();
 
@@ -96,6 +96,11 @@ function createMicInput() {
 
   // exposed so a debug panel can tweak the six DSP knobs live
   const dsp = Object.assign({}, DSP_PRESETS.melodic);
+
+  // mic chord readout stabilizer settings (mutated live by the debug panel)
+  const chordSettings = { holdMs: 120, minConfidence: 0.6 };
+  const stabilizer = createChordStabilizer(() => chordSettings);
+  let lastStableName = '';
 
   // ----------------------------------------------------------------- state
   // per-frame accumulators and smoothed chroma for the chord detector
@@ -421,6 +426,7 @@ function createMicInput() {
     });
     micCtx = new (window.AudioContext || window.webkitAudioContext)();
     micAna = makeAnalysers(micCtx, micCtx.createMediaStreamSource(micStream));
+    stabilizer.reset(); lastStableName = '';
   }
 
   // stop the stream, close the context, and clear references (ports disableMic;
@@ -429,6 +435,7 @@ function createMicInput() {
     if (micStream) micStream.getTracks().forEach((t) => t.stop());
     if (micCtx) micCtx.close();
     micCtx = micAna = micStream = null;
+    stabilizer.reset(); lastStableName = '';
   }
 
   // Read the FFT, run the DSP stack, fold into per-pitch-class energy, and fill
@@ -478,6 +485,10 @@ function createMicInput() {
     for (let i = 0; i < 12; i++) chroma[i] += (chromaRaw[i] - chroma[i]) * 0.07;
     out.chroma.set(chroma);
     out.level = state.level;
+
+    // gate the fuzzy chord estimate so the readout does not flicker
+    const det = detectChord();
+    lastStableName = stabilizer.update(now, det ? det.name : null, det ? det.conf : 0);
   }
 
   // Fuzzy chord ESTIMATE from the smoothed chroma (ports detectChord). Returns
@@ -522,12 +533,17 @@ function createMicInput() {
     return det ? det.name : null;
   }
 
+  // committed, flicker-free chord name for display (updated each analyse())
+  function estimateStableChordName() { return lastStableName; }
+
   return {
     enable,
     disable,
     analyse,
-    detectChordName,
+    detectChordName,          // raw per-frame estimate (kept for completeness)
+    estimateStableChordName,  // stabilized name for the readout
     dsp,
+    chordSettings,
   };
 }
 
