@@ -31,6 +31,28 @@
 
 'use strict';
 
+// Confidence gate + asymmetric hold hysteresis over the fuzzy per-frame chord
+// estimate, so the mic readout does not flicker. getSettings() returns live
+// { holdMs, minConfidence } so debug-panel changes take effect immediately.
+// update(now, name, conf) -> the committed display string ('' = show nothing);
+// now is in SECONDS.
+function createChordStabilizer(getSettings) {
+  let shown = '';            // currently displayed name ('' = nothing)
+  let cand = null;           // candidate we're timing toward ('' = the "clear" candidate)
+  let candSince = 0;         // when `cand` first appeared (seconds)
+
+  function update(now, name, conf) {
+    const { holdMs, minConfidence } = getSettings();
+    // sub-confidence => no candidate this frame; '' is the "clear" candidate
+    const frame = (name && conf >= minConfidence) ? name : '';
+    if (frame !== cand) { cand = frame; candSince = now; }
+    if (cand !== shown && (now - candSince) * 1000 >= holdMs) shown = cand;
+    return shown;
+  }
+  function reset() { shown = ''; cand = null; candSince = 0; }
+  return { update, reset };
+}
+
 function createMicInput() {
   // ------------------------------------------------------------- constants
   // (ported from waveloop; identifiers preserved verbatim)
@@ -510,4 +532,6 @@ function createMicInput() {
 }
 
 if (typeof window !== 'undefined') window.createMicInput = createMicInput;
-if (typeof module !== 'undefined' && module.exports) module.exports = { createMicInput };
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { createMicInput, createChordStabilizer };
+}
