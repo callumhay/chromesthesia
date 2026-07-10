@@ -73,6 +73,7 @@ const { createKeyEstimator } = require('./key-spelling.js');
 test('histogram weight halves over one MIDI half-life', () => {
   const est = createKeyEstimator();
   est.settings.halfLifeMidiSec = 2;
+  est.decayTo(0, 'midi');                 // seed lastT=0 (first call only sets the clock)
   est.addNoteOn(60, 1.0);                 // C4, full velocity, at t=0
   const w0 = est._weightForTest(0);       // pc 0 (C) weight right after
   est.decayTo(2.0, 'midi');               // advance one half-life

@@ -106,6 +106,7 @@ function corr(a, b) {
 function createKeyEstimator() {
   const hist = new Float32Array(12);           // 0 = C
   let lastT = 0;
+  let seeded = false;                          // false => decayTo hasn't set the clock yet
   const settings = { halfLifeMidiSec: 2, halfLifeMicSec: 4, confidenceMargin: 0.03 };
   const MIN_TOTAL = 0.5;                        // below this => undecided
 
@@ -124,6 +125,7 @@ function createKeyEstimator() {
   }
   function decayTo(now, mode) {
     console.assert(mode === 'mic' || mode === 'midi', 'decayTo: unknown mode', mode);
+    if (!seeded) { seeded = true; lastT = now; return; }   // seed clock on first call; no decay yet
     const hl = mode === 'mic' ? settings.halfLifeMicSec : settings.halfLifeMidiSec;
     const dt = Math.max(now - lastT, 0);
     lastT = now;
@@ -149,7 +151,7 @@ function createKeyEstimator() {
     if (bestScore - second < settings.confidenceMargin) return null;   // ambiguous
     return best;
   }
-  function reset() { hist.fill(0); lastT = 0; }
+  function reset() { hist.fill(0); lastT = 0; seeded = false; }
   function _weightForTest(pc) { return hist[pc]; }
   return { addNoteOn, addMicEnergyPc, decayTo, estimateKey, reset, settings, _weightForTest };
 }
