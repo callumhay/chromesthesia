@@ -191,7 +191,12 @@ void main() {
   }
 
   float ringGlow = exp(-abs(r - r0) * 70.0);
-  float occupied = clamp(eTot * 4.0, 0.0, 1.0);
+  // How much this angle's halo takes the note colour vs the dim green base. A
+  // steep clamp(eTot*4) snapped from bright note-colour to dim green over a
+  // couple of pixels at the plume's angular edge, clipping a hard dark notch
+  // into the halo fringe (worst on bright/high-velocity notes). smoothstep
+  // spreads that transition so the halo blends gradually into the ring.
+  float occupied = smoothstep(0.0, 1.2, eTot);
   vec3 ringCol = mix(phos * (0.06 + 0.13 * u_level),
                      coreRgb * (0.5 + 0.5 * u_level), occupied);
   col += ringCol * ringGlow;
