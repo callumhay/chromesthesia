@@ -5,7 +5,7 @@
 // key = { tonic, mode } (tonic 0..11, 0 = C) or null (undecided => flat default).
 'use strict';
 const assert = require('assert');
-const { spell, DEFAULT_SPELLING } = require('./key-spelling.js');
+const { spell, DEFAULT_SPELLING, accidentalHTML } = require('./key-spelling.js');
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -133,6 +133,30 @@ test('an A-minor note stream estimates A minor', () => {
     for (const m of AMIN) { est.addNoteOn(m, 0.9); est.decayTo(t += 0.1, 'midi'); }
   }
   assert.deepStrictEqual(est.estimateKey(), { tonic: 9, mode: 'minor' });
+});
+
+// --- accidentalHTML: wrap #/b after a note letter for raised-mark styling -----
+
+test('accidentalHTML wraps a sharp and a flat, leaves naturals alone', () => {
+  assert.strictEqual(accidentalHTML('A#'), 'A<span class="acc">#</span>');
+  assert.strictEqual(accidentalHTML('Bb'), 'B<span class="acc">b</span>');
+  assert.strictEqual(accidentalHTML('C'), 'C');
+});
+
+test('accidentalHTML does NOT wrap chord-suffix letters or octave digits', () => {
+  // the maj7's letters and the 7 stay inline; only the F# accidental is wrapped
+  assert.strictEqual(accidentalHTML('F#maj7'), 'F<span class="acc">#</span>maj7');
+  // octave digit after an accidental note stays inline
+  assert.strictEqual(accidentalHTML('A#3'), 'A<span class="acc">#</span>3');
+});
+
+test('accidentalHTML handles aliases and spaced note lists', () => {
+  assert.strictEqual(accidentalHTML('C6 / Am7'), 'C6 / Am7');
+  assert.strictEqual(accidentalHTML('Bb D F'), 'B<span class="acc">b</span> D F');
+});
+
+test('accidentalHTML escapes HTML metacharacters (defensive)', () => {
+  assert.strictEqual(accidentalHTML('<b>'), '&lt;b&gt;');
 });
 
 console.log(`\n${passed} passed`);

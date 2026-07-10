@@ -90,7 +90,7 @@
       const m = NC.noteToColour(midi, notes.get(midi).velocity, params);
       parts.push(`${NC.PITCH_CLASSES[m.pcIndex]}${m.octave}`);
     }
-    notesReadout.textContent = parts.join('   ');
+    notesReadout.innerHTML = window.KeySpelling.accidentalHTML(parts.join('   '));
   }
 
   function noteOn(midi, velocity) {
@@ -243,7 +243,7 @@
       // stabilized (flicker-free) chord name; stabilizer ran inside analyse()
       const name = mic.estimateStableChordName();
       if (name !== chordEl.textContent) {
-        chordEl.textContent = name || '';
+        chordEl.innerHTML = window.KeySpelling.accidentalHTML(name || '');
         chordEl.style.opacity = name ? '1' : '0';
       }
     } else {

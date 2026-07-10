@@ -53,6 +53,10 @@ body {
   text-shadow: 0 0 18px var(--phos-dim), 0 0 50px rgba(70,255,200,0.15);
   transition: opacity 0.2s ease;
 }
+/* accidentals (# / b) rendered as a raised, slightly-smaller mark - bigger and
+   lower than a true superscript, so they read like notation. em-based so it
+   scales with each readout's font-size. */
+.acc { font-size: 0.68em; vertical-align: 0.3em; }
 /* implied chord: smaller, dimmer, darker green - same CRT phosphor look */
 #impliedchord {
   font-family: "VT323", ui-monospace, monospace;

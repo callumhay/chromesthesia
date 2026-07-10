@@ -80,6 +80,20 @@ function spell(pc, key) {
   return tableForKey(key)[((pc % 12) + 12) % 12];
 }
 
+// Render a note/chord readout string as HTML, wrapping each accidental (the `#`
+// or `b` right after a note letter A-G) in <span class="acc"> so it can be
+// styled as a raised, slightly-smaller mark (VT323 lacks the ♯/♭ glyphs, so we
+// keep the ASCII characters and style them instead). Input is a known-safe note
+// string (letters, #, b, digits, spaces, '/'); it is HTML-escaped defensively so
+// the helper stays safe if ever fed arbitrary text.
+function accidentalHTML(text) {
+  const escaped = String(text).replace(/[&<>]/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  // a #/b counts as an accidental only when it directly follows a note letter
+  return escaped.replace(/([A-G])([#b]+)/g,
+    (_, letter, marks) => `${letter}<span class="acc">${marks}</span>`);
+}
+
 // Krumhansl-Schmuckler key profiles (major, minor), rotated so index 0 = tonic.
 const KS_MAJOR = [6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88];
 const KS_MINOR = [6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
@@ -157,8 +171,8 @@ function createKeyEstimator() {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { spell, DEFAULT_SPELLING, tableForKey, buildMajorTable, createKeyEstimator };
+  module.exports = { spell, DEFAULT_SPELLING, tableForKey, buildMajorTable, createKeyEstimator, accidentalHTML };
 }
 if (typeof window !== 'undefined') {
-  window.KeySpelling = { spell, DEFAULT_SPELLING, createKeyEstimator };
+  window.KeySpelling = { spell, DEFAULT_SPELLING, createKeyEstimator, accidentalHTML };
 }
