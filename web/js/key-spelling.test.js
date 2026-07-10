@@ -68,4 +68,70 @@ test('Gb major spells its diatonic 7th degree as Cb', () => {
   assert.strictEqual(spell(11, { tonic: 6, mode: 'major' }), 'Cb');
 });
 
+const { createKeyEstimator } = require('./key-spelling.js');
+
+test('histogram weight halves over one MIDI half-life', () => {
+  const est = createKeyEstimator();
+  est.settings.halfLifeMidiSec = 2;
+  est.addNoteOn(60, 1.0);                 // C4, full velocity, at t=0
+  const w0 = est._weightForTest(0);       // pc 0 (C) weight right after
+  est.decayTo(2.0, 'midi');               // advance one half-life
+  const w1 = est._weightForTest(0);
+  assert.ok(Math.abs(w1 / w0 - 0.5) < 0.02, `expected halving, got ${w1 / w0}`);
+});
+
+test('a C-major note stream estimates C major', () => {
+  const est = createKeyEstimator();
+  const CMAJ = [60, 62, 64, 65, 67, 69, 71, 72];   // C D E F G A B C
+  let t = 0;
+  for (let rep = 0; rep < 4; rep++) {
+    for (const m of CMAJ) { est.addNoteOn(m, 0.9); est.decayTo(t += 0.1, 'midi'); }
+  }
+  const key = est.estimateKey();
+  assert.deepStrictEqual(key, { tonic: 0, mode: 'major' });
+});
+
+test('a low bass note-on outweighs the same-velocity note an octave up', () => {
+  const est = createKeyEstimator();
+  est.addNoteOn(36, 0.8);   // low C
+  const wLow = est._weightForTest(0);
+  est.reset();
+  est.addNoteOn(72, 0.8);   // high C, same velocity
+  const wHigh = est._weightForTest(0);
+  assert.ok(wLow > wHigh, `bass ${wLow} should outweigh treble ${wHigh}`);
+});
+
+test('a louder note-on outweighs a quiet one at the same pitch', () => {
+  const est = createKeyEstimator();
+  est.addNoteOn(60, 1.0); const loud = est._weightForTest(0);
+  est.reset();
+  est.addNoteOn(60, 0.2); const quiet = est._weightForTest(0);
+  assert.ok(loud > quiet, `loud ${loud} should outweigh quiet ${quiet}`);
+});
+
+test('reset clears the histogram (mode-switch behaviour)', () => {
+  const est = createKeyEstimator();
+  est.addNoteOn(60, 1.0);
+  est.reset();
+  assert.strictEqual(est._weightForTest(0), 0);
+  assert.strictEqual(est.estimateKey(), null);   // empty => undecided
+});
+
+test('mic energy on A (0=A pc 0) lands on pitch class 9 (A) internally', () => {
+  const est = createKeyEstimator();
+  est.addMicEnergyPc(0, 1.0);   // 0=A convention pc 0 == A == 0=C pc 9
+  assert.ok(est._weightForTest(9) > 0);
+  assert.strictEqual(est._weightForTest(0), 0);
+});
+
+test('an A-minor note stream estimates A minor', () => {
+  const est = createKeyEstimator();
+  const AMIN = [57, 59, 60, 62, 64, 65, 67, 69];   // A B C D E F G A
+  let t = 0;
+  for (let rep = 0; rep < 4; rep++) {
+    for (const m of AMIN) { est.addNoteOn(m, 0.9); est.decayTo(t += 0.1, 'midi'); }
+  }
+  assert.deepStrictEqual(est.estimateKey(), { tonic: 9, mode: 'minor' });
+});
+
 console.log(`\n${passed} passed`);

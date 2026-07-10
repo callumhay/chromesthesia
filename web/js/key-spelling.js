@@ -80,9 +80,83 @@ function spell(pc, key) {
   return tableForKey(key)[((pc % 12) + 12) % 12];
 }
 
+// Krumhansl-Schmuckler key profiles (major, minor), rotated so index 0 = tonic.
+const KS_MAJOR = [6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88];
+const KS_MINOR = [6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
+
+// Pearson correlation of two length-12 vectors.
+function corr(a, b) {
+  let ma = 0, mb = 0;
+  for (let i = 0; i < 12; i++) { ma += a[i]; mb += b[i]; }
+  ma /= 12; mb /= 12;
+  let num = 0, da = 0, db = 0;
+  for (let i = 0; i < 12; i++) {
+    const xa = a[i] - ma, xb = b[i] - mb;
+    num += xa * xb; da += xa * xa; db += xb * xb;
+  }
+  const den = Math.sqrt(da * db);
+  return den < 1e-12 ? 0 : num / den;
+}
+
+// Time-decayed pitch-class histogram (0 = C) + KS key estimate. Feeds:
+//   addNoteOn(midi, velocity)      MIDI: bass-primary, velocity-secondary weight
+//   addMicEnergyPc(pcA, energy)    mic:  energy-primary; pcA is 0=A, converted
+//   decayTo(now, mode)             exponential decay to `now` using mode's half-life
+//   estimateKey()                  -> { tonic, mode } or null (undecided)
+function createKeyEstimator() {
+  const hist = new Float32Array(12);           // 0 = C
+  let lastT = 0;
+  const settings = { halfLifeMidiSec: 2, halfLifeMicSec: 4, confidenceMargin: 0.03 };
+  const MIN_TOTAL = 0.5;                        // below this => undecided
+
+  // bass-primary weight: lower MIDI notes count more (linear falloff over the
+  // 88-key range), times velocity. One deposit per note-on.
+  function addNoteOn(midi, velocity) {
+    const pc = ((midi % 12) + 12) % 12;
+    const bass = Math.max(0.2, 1 - (midi - 21) / 87);   // ~1.0 at A0 .. ~0.2 top
+    hist[pc] += bass * Math.max(velocity, 0.05);
+  }
+  // mic: energy dominates; pcA is 0=A, convert to 0=C. (Bass boost is applied by
+  // the caller via per-bin octave position; here we take already-weighted energy.)
+  function addMicEnergyPc(pcA, energy) {
+    const pc = ((pcA + 9) % 12 + 12) % 12;      // 0=A -> 0=C (A is pc 9)
+    hist[pc] += energy;
+  }
+  function decayTo(now, mode) {
+    console.assert(mode === 'mic' || mode === 'midi', 'decayTo: unknown mode', mode);
+    const hl = mode === 'mic' ? settings.halfLifeMicSec : settings.halfLifeMidiSec;
+    const dt = Math.max(now - lastT, 0);
+    lastT = now;
+    if (dt > 0 && hl > 0) {
+      const f = Math.pow(0.5, dt / hl);
+      for (let i = 0; i < 12; i++) hist[i] *= f;
+    }
+  }
+  function estimateKey() {
+    let total = 0;
+    for (let i = 0; i < 12; i++) total += hist[i];
+    if (total < MIN_TOTAL) return null;
+    let best = null, bestScore = -2, second = -2;
+    for (let tonic = 0; tonic < 12; tonic++) {
+      for (const [mode, prof] of [['major', KS_MAJOR], ['minor', KS_MINOR]]) {
+        const rot = new Array(12);
+        for (let i = 0; i < 12; i++) rot[i] = prof[(i - tonic + 12) % 12];
+        const s = corr(hist, rot);
+        if (s > bestScore) { second = bestScore; bestScore = s; best = { tonic, mode }; }
+        else if (s > second) { second = s; }
+      }
+    }
+    if (bestScore - second < settings.confidenceMargin) return null;   // ambiguous
+    return best;
+  }
+  function reset() { hist.fill(0); lastT = 0; }
+  function _weightForTest(pc) { return hist[pc]; }
+  return { addNoteOn, addMicEnergyPc, decayTo, estimateKey, reset, settings, _weightForTest };
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { spell, DEFAULT_SPELLING, tableForKey, buildMajorTable };
+  module.exports = { spell, DEFAULT_SPELLING, tableForKey, buildMajorTable, createKeyEstimator };
 }
 if (typeof window !== 'undefined') {
-  window.KeySpelling = { spell, DEFAULT_SPELLING };
+  window.KeySpelling = { spell, DEFAULT_SPELLING, createKeyEstimator };
 }
