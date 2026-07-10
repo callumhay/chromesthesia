@@ -86,10 +86,10 @@ test('C Eb Gb is exact Cdim -> impliedChord null', () => {
   assert.strictEqual(impliedChord([60, 63, 66]), null);
 });
 
-// C G# is more naturally G# major (G# + its major 3rd C) than an incomplete
-// augmented.
-test('C G# implies G# major (not an incomplete aug)', () => {
-  assert.strictEqual(impliedChord([60, 68]), 'G#');
+// C Ab is more naturally Ab major (Ab + its major 3rd C) than an incomplete
+// augmented. (pc 8 spells Ab under the default flat-preferring table.)
+test('C Ab implies Ab major (not an incomplete aug)', () => {
+  assert.strictEqual(impliedChord([60, 68]), 'Ab');
 });
 
 // --- exact chords are NOT "implied" (that's the main readout's job) --------

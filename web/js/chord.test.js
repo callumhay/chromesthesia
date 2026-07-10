@@ -68,17 +68,32 @@ test('duplicate pitch classes across octaves still name the chord (C3 C4 E4 G4)'
 
 // --- non-chords show note names -------------------------------------------
 
-test('two random notes show note names (C + F#)', () => {
-  assert.strictEqual(nameFromMidiNotes([60, 66]), 'C F#');
+test('two random notes show note names (C + Gb)', () => {
+  assert.strictEqual(nameFromMidiNotes([60, 66]), 'C Gb');
 });
 
-test('unrecognised cluster shows note names (C C# D)', () => {
-  assert.strictEqual(nameFromMidiNotes([60, 61, 62]), 'C C# D');
+test('unrecognised cluster shows note names (C Db D)', () => {
+  assert.strictEqual(nameFromMidiNotes([60, 61, 62]), 'C Db D');
 });
 
 // note names are de-duplicated by pitch class and shown once
 test('same pitch class in two octaves shows once (C3 + C5)', () => {
   assert.strictEqual(nameFromMidiNotes([48, 72]), 'C');
+});
+
+// --- key-aware spelling ---------------------------------------------------
+const F_MAJOR = { tonic: 5, mode: 'major' };
+
+test('Bb major triad names "Bb" (not "A#") under an F-major key', () => {
+  // Bb D F = midi 58,62,65
+  const name = nameFromMidiNotes([58, 62, 65], F_MAJOR);
+  assert.ok(name.startsWith('Bb'), `expected Bb..., got "${name}"`);
+  assert.ok(!name.includes('A#'), `must not contain A#: "${name}"`);
+});
+
+test('loose notes respell to flats by default (A# -> Bb)', () => {
+  // Bb + C held (not a chord) => note names; default table => "Bb C"
+  assert.strictEqual(nameFromMidiNotes([58, 60]), 'Bb C');
 });
 
 console.log(`\n${passed} tests passed.`);
