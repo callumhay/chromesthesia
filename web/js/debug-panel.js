@@ -13,7 +13,7 @@ const pct = (v) => `${Math.round(v * 100)}%`;
 
 // Each section: { title, sliders: [[key,label,min,max,step,fmt], ...],
 //                 toggles: [[key,label], ...] }
-const SECTIONS = [
+const CEL_SECTIONS = [
   {
     title: 'Octave Colouration',
     sliders: [
@@ -41,34 +41,37 @@ const SECTIONS = [
 ];
 
 class DebugPanel {
-  constructor({ container, defaults, onChange } = {}) {
+  constructor({ container, defaults, onChange, sections, storageKey, idPrefix } = {}) {
     this.container = container;
     this.onChange = onChange || (() => {});
+    this.sections = sections || CEL_SECTIONS;
+    this.storageKey = storageKey || STORAGE_KEY;
+    this.idPrefix = idPrefix || 'cel';
     this.params = Object.assign({}, defaults, this._load());
   }
 
   _load() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(this.storageKey);
       return raw ? JSON.parse(raw) : {};
     } catch (e) { return {}; }
   }
 
   _save() {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(this.params)); }
+    try { localStorage.setItem(this.storageKey, JSON.stringify(this.params)); }
     catch (e) { /* private mode: ignore */ }
   }
 
   render() {
-    const html = SECTIONS.map((sec) => {
+    const html = this.sections.map((sec) => {
       const rows = sec.sliders.map(([key, label, min, max, step, fmt]) => {
         const val = this.params[key];
         return `
           <div class="krow on">
             <span class="klabel">${label}</span>
-            <input type="range" id="cel_${key}" min="${min}" max="${max}"
+            <input type="range" id="${this.idPrefix}_${key}" min="${min}" max="${max}"
                    step="${step}" value="${val}">
-            <span class="kval" id="celval_${key}">${fmt(val)}</span>
+            <span class="kval" id="${this.idPrefix}val_${key}">${fmt(val)}</span>
           </div>`;
       }).join('');
       const toggles = sec.toggles.map(([key, label]) => {
@@ -77,7 +80,7 @@ class DebugPanel {
           <div class="krow on">
             <span class="klabel">${label}</span>
             <label class="celtoggle">
-              <input type="checkbox" id="cel_${key}" ${checked}>
+              <input type="checkbox" id="${this.idPrefix}_${key}" ${checked}>
             </label>
           </div>`;
       }).join('');
@@ -86,10 +89,10 @@ class DebugPanel {
 
     this.container.innerHTML = html;
 
-    for (const sec of SECTIONS) {
+    for (const sec of this.sections) {
       for (const [key, , , , , fmt] of sec.sliders) {
-        const input = this.container.querySelector(`#cel_${key}`);
-        const out = this.container.querySelector(`#celval_${key}`);
+        const input = this.container.querySelector(`#${this.idPrefix}_${key}`);
+        const out = this.container.querySelector(`#${this.idPrefix}val_${key}`);
         input.addEventListener('input', () => {
           this.params[key] = parseFloat(input.value);
           out.textContent = fmt(this.params[key]);
@@ -98,7 +101,7 @@ class DebugPanel {
         });
       }
       for (const [key] of sec.toggles) {
-        const box = this.container.querySelector(`#cel_${key}`);
+        const box = this.container.querySelector(`#${this.idPrefix}_${key}`);
         box.addEventListener('change', () => {
           this.params[key] = box.checked;
           this._save();

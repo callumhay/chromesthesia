@@ -53,6 +53,10 @@ body {
   text-shadow: 0 0 18px var(--phos-dim), 0 0 50px rgba(70,255,200,0.15);
   transition: opacity 0.2s ease;
 }
+/* accidentals (# / b) rendered as a raised, slightly-smaller mark - bigger and
+   lower than a true superscript, so they read like notation. em-based so it
+   scales with each readout's font-size. */
+.acc { font-size: 0.68em; vertical-align: 0.3em; }
 /* implied chord: smaller, dimmer, darker green - same CRT phosphor look */
 #impliedchord {
   font-family: "VT323", ui-monospace, monospace;
@@ -135,7 +139,9 @@ button:active { transform: translateY(1px); }
   font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
   color: var(--phos-dim); margin: 2px 0 6px;
 }
-.sub .tag { color: var(--phos); }
+/* subsection headers: dimmer than full phosphor, but brighter than the panel
+   title (--phos-dim, 0.35), so the hierarchy reads title < subsection < value */
+.sub .tag { color: rgba(70, 255, 200, 0.65); }
 
 .krow { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
 .krow .klabel {

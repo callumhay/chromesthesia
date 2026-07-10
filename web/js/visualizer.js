@@ -65,8 +65,6 @@ uniform sampler2D u_hist;
 uniform vec4 u_pcGlow[12];   // per pitch class: rgb = octave-shaded colour, w = held weight
 
 const float TAU = 6.28318530718;
-const float ANGC = ${ANG_TEX}.0;
-const float ANGN = ${ANG}.0;
 const float RBINS = 256.0;
 const float REGS = 4.0;
 const float TROWS = RBINS * REGS;
@@ -95,23 +93,14 @@ float fbm(vec2 p) {
   return v;
 }
 
-vec3 bspline(float pc01, float w) {
-  float pcT = pc01 * w - 0.5;
-  float ip = floor(pcT);
-  float f = pcT - ip;
-  float f2 = f * f, f3 = f2 * f;
-  float w0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0;
-  float w1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0;
-  float w3 = f3 / 6.0;
-  float g0 = w0 + w1;
-  return vec3((ip - 0.5 + w1 / g0) / w,
-              (ip + 1.5 + w3 / (1.0 - g0)) / w, g0);
-}
-
-vec4 radAt(vec3 ang, float xr, float band) {
+// Sample the history texture at a given angle. Direct bilinear tap: the texture
+// is angularly oversampled (ANG_TEX = ANG * AOS) and GL_LINEAR-filtered, so this
+// is already smooth. (An earlier cubic b-spline reconstruction here undershot at
+// high-contrast edges - a bright plume next to an empty column - which painted
+// thin dark radial slivers across the ring where adjacent note plumes met.)
+vec4 radAt(float pc01, float xr, float band) {
   float y = (clamp(xr, 0.0, 1.0) * (RBINS - 1.0) + 0.5 + band * RBINS) / TROWS;
-  return mix(texture2D(u_hist, vec2(ang.y, y)),
-             texture2D(u_hist, vec2(ang.x, y)), ang.z);
+  return texture2D(u_hist, vec2(pc01, y));
 }
 
 void main() {
@@ -119,9 +108,6 @@ void main() {
   vec2 uv = (gl_FragCoord.xy - 0.5 * u_res) / mn;
   float r = length(uv);
   float pc01 = fract(atan(uv.x, uv.y) / TAU);
-
-  vec3 ang = bspline(pc01, ANGC);
-  vec3 angN = bspline(pc01, ANGN);
 
   vec3 phos  = vec3(0.27, 1.0, 0.78);
   vec3 cold  = vec3(0.10, 0.35, 0.50);
@@ -174,7 +160,7 @@ void main() {
   float xr = clamp((r - r0) / (rOut - r0), 0.0, 1.0);
   float trailMask = smoothstep(0.0, 0.008, r - r0);
   for (int j = 0; j < 4; j++) {
-    vec4 h = radAt(ang, xr, float(j));
+    vec4 h = radAt(pc01, xr, float(j));
     float ha = h.a * h.a * EMAX;
     col += h.rgb * h.a * EMAX * (0.55 + 0.95 * ha) * trailMask;
   }
@@ -188,7 +174,7 @@ void main() {
   float eTot = 0.0;
   vec3 coreRgb = vec3(0.0);
   for (int j = 0; j < 4; j++) {
-    hn[j] = radAt(ang, 0.0, float(j));
+    hn[j] = radAt(pc01, 0.0, float(j));
     eTot += hn[j].a * hn[j].a * EMAX;
     coreRgb += hn[j].rgb * hn[j].a * EMAX;
   }
@@ -197,7 +183,12 @@ void main() {
   float s2 = eTot * eTot;
   float stackH = 0.006 + 0.30 * s2 / (s2 + 4.0);
   float xo = r - r0;
-  float aa = 0.003;
+  // Edge feather for the rim stack. A razor-thin 0.003 made the stack a hard-
+  // edged bright band sitting on the ring halo; at low sustained magnitude (a
+  // quiet note held a while) the stack is thin and its sharp ends clipped a dark
+  // notch into the halo fringe. A wider feather softens that without visibly
+  // blurring bright notes.
+  float aa = 0.012;
   float stk = smoothstep(-aa, aa, xo) - smoothstep(stackH - aa, stackH + aa, xo);
   if (stk > 0.001) {
     float bright = 0.25 + 0.85 * min(eTot, 2.2);
@@ -205,7 +196,12 @@ void main() {
   }
 
   float ringGlow = exp(-abs(r - r0) * 70.0);
-  float occupied = clamp(eTot * 4.0, 0.0, 1.0);
+  // How much this angle's halo takes the note colour vs the dim green base. A
+  // steep clamp(eTot*4) snapped from bright note-colour to dim green over a
+  // couple of pixels at the plume's angular edge, clipping a hard dark notch
+  // into the halo fringe (worst on bright/high-velocity notes). smoothstep
+  // spreads that transition so the halo blends gradually into the ring.
+  float occupied = smoothstep(0.0, 1.2, eTot);
   vec3 ringCol = mix(phos * (0.06 + 0.13 * u_level),
                      coreRgb * (0.5 + 0.5 * u_level), occupied);
   col += ringCol * ringGlow;

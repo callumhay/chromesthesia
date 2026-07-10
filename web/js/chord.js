@@ -1,19 +1,25 @@
 // chord.js
 //
 // Chord/note readout for the centre of the wheel, driven by the EXACT set of
-// held MIDI notes. MIDI gives exact note-on/off, so - unlike a microphone/FFT
-// feed - there is NO filtering or smoothing here: the readout reflects exactly
-// what is held, instantly. A chord name is shown only when the held pitch
-// classes exactly form a recognized chord; otherwise the held note names are
-// shown; nothing is held -> blank.
+// held MIDI notes. Chord *matching* is exact and instant: a chord name shows
+// only when the held pitch classes exactly form a recognized chord; otherwise
+// the held note names show; nothing held -> blank. There is no smoothing or
+// hysteresis on the matching.
+//
+// The one thing that is NOT frozen at press-time is *spelling*: which accidental
+// name a pitch gets (Bb vs A#) depends on the current estimated key, passed in
+// as `estimatedKey` (may be null -> a neutral flat-preferring default). As the
+// key estimate fills in, a just-played note can respell a moment later. This is
+// deliberate and musically correct.
 //
 // (An FFT/mic feed would want smoothing and fuzzy partial-match scoring, since
 // it never knows the exact notes. That machinery is deliberately absent here.)
 
 'use strict';
 
-// Pitch-class names indexed 0 = C (standard MIDI: pc = midi % 12).
-const PC_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const KS = (typeof require !== 'undefined')
+  ? require('./key-spelling.js')
+  : (typeof window !== 'undefined' ? window.KeySpelling : null);
 
 // Chord qualities as interval sets from the root (semitones). Order matters:
 // earlier = preferred when two qualities share a pitch-class set (none here do
@@ -62,11 +68,13 @@ function exactMatch(heldSet, root, ivs) {
 // The same notes can name more than one chord (C6 == Am7, symmetric aug/dim7),
 // so this returns every valid (root, quality) match. Empty if not a chord.
 // bassPc: the pitch class of the lowest held note (may be null).
-function chordNames(heldSet, bassPc) {
+function chordNames(heldSet, bassPc, estimatedKey) {
   const matches = [];
   for (let root = 0; root < 12; root++) {
     for (const q of QUALITIES) {
-      if (exactMatch(heldSet, root, q.ivs)) matches.push({ root, name: PC_NAMES[root] + q.name });
+      if (exactMatch(heldSet, root, q.ivs)) {
+        matches.push({ root, name: KS.spell(root, estimatedKey) + q.name });
+      }
     }
   }
   matches.sort((a, b) => {
@@ -124,7 +132,7 @@ const IMPLIED = [
 // Name the chord implied by the held pitch classes, or null. Returns null when
 // the notes already form an EXACT chord (that is the main readout's job) and
 // when the implication is ambiguous. lowestPc breaks ties toward the bass note.
-function impliedChord(midiNotes) {
+function impliedChord(midiNotes, estimatedKey) {
   const { set, order } = pitchClasses(midiNotes);
   if (set.size < 2) return null;
   if (chordName(set)) return null;            // exact -> not "implied"
@@ -146,7 +154,7 @@ function impliedChord(midiNotes) {
         if (!q.ivs.some((iv) => (root + iv) % 12 === pc)) { allInside = false; break; }
       }
       if (!allInside) continue;
-      candidates.push({ root, qi, name: PC_NAMES[root] + q.name, present, size: q.ivs.length });
+      candidates.push({ root, qi, name: KS.spell(root, estimatedKey) + q.name, present, size: q.ivs.length });
     }
   }
   if (candidates.length === 0) return null;
@@ -169,16 +177,16 @@ function impliedChord(midiNotes) {
 }
 
 // The public readout function: exact held MIDI notes -> display string.
-function nameFromMidiNotes(midiNotes) {
+function nameFromMidiNotes(midiNotes, estimatedKey) {
   const { set, order } = pitchClasses(midiNotes);
   if (set.size === 0) return '';
   // exact chord(s): show every valid name (aliases), bass-note interpretation
   // first, joined with " / " (C E G A -> "C6 / Am7")
-  const names = chordNames(set, order[0]);
+  const names = chordNames(set, order[0], estimatedKey);
   if (names.length) return names.join(' / ');
   // not a recognized chord: show the held note names (deduped by pitch class,
   // ordered by pitch)
-  return order.map((pc) => PC_NAMES[pc]).join(' ');
+  return order.map((pc) => KS.spell(pc, estimatedKey)).join(' ');
 }
 
 // Thin DOM binding: set the readout text from the current held notes. No
@@ -194,20 +202,21 @@ class ChordReadout {
   }
 
   // midiNotes: array (or iterable) of currently-held MIDI note numbers.
-  update(midiNotes) {
+  // estimatedKey: { tonic, mode } or null -> spells names per the estimated key.
+  update(midiNotes, estimatedKey) {
     const notes = Array.from(midiNotes);
-    const text = nameFromMidiNotes(notes);
+    const text = nameFromMidiNotes(notes, estimatedKey);
     if (text !== this.last) {
       this.last = text;
-      this.nameEl.textContent = text;
+      this.nameEl.innerHTML = KS.accidentalHTML(text);
       this.nameEl.style.opacity = text ? '1' : '0';
     }
     if (this.impliedEl) {
       // only suggest when the main readout is note names (not already a chord)
-      const implied = text.includes(' ') ? (impliedChord(notes) || '') : '';
+      const implied = text.includes(' ') ? (impliedChord(notes, estimatedKey) || '') : '';
       if (implied !== this.lastImplied) {
         this.lastImplied = implied;
-        this.impliedEl.textContent = implied;
+        this.impliedEl.innerHTML = KS.accidentalHTML(implied);
         this.impliedEl.style.opacity = implied ? '1' : '0';
       }
     }
@@ -215,7 +224,7 @@ class ChordReadout {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { ChordReadout, nameFromMidiNotes, impliedChord, chordName, PC_NAMES, QUALITIES };
+  module.exports = { ChordReadout, nameFromMidiNotes, impliedChord, chordName, QUALITIES };
 }
 if (typeof window !== 'undefined') {
   window.ChordReadout = ChordReadout;

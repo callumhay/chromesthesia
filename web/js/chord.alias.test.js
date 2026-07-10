@@ -38,7 +38,7 @@ test('C E G# (augmented) shows all three names, bass first', () => {
   // C in bass -> Caug first, then the other two rotations
   const r = nameFromMidiNotes([60, 64, 68]);  // C4 E4 G#4
   assert.ok(r.startsWith('Caug'), `expected Caug first, got "${r}"`);
-  assert.ok(r.includes('Eaug') && r.includes('G#aug'), `expected all three: "${r}"`);
+  assert.ok(r.includes('Eaug') && r.includes('Abaug'), `expected all three: "${r}"`);
 });
 
 // --- symmetric dim7: C Eb Gb A = 4 names ----------------------------------
@@ -61,7 +61,7 @@ test('C7 (single name) has no alias', () => {
 
 // non-chords still show note names (unchanged)
 test('non-chord still shows note names', () => {
-  assert.strictEqual(nameFromMidiNotes([60, 66]), 'C F#');
+  assert.strictEqual(nameFromMidiNotes([60, 66]), 'C Gb');
 });
 
 console.log(`\n${passed} tests passed.`);

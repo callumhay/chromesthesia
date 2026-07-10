@@ -644,7 +644,7 @@ git commit -m "feat: Krumhansl key estimator (decayed histogram, per-mode half-l
 - Modify: `web/js/chord.js` (add `estimatedKey` param to `chordNames`, `nameFromMidiNotes`, `impliedChord`, `ChordReadout.update`; replace `PC_NAMES[...]` *display* lookups with `spell`; update header comment)
 - Modify: `web/js/chord.test.js` (add key-context test)
 
-`chord.js` runs in both Node (tests) and the browser. Import `spell` in a way that works for both: `const KS = (typeof require !== 'undefined') ? require('./key-spelling.js') : window.KeySpelling;`. `PC_NAMES` stays for interval math internally, but every place a name is emitted for display uses `KS.spell(pc, estimatedKey)`. When `estimatedKey` is omitted (undefined), `spell` receives `null` → default table (preserves current behaviour except sharps→the flat default).
+`chord.js` runs in both Node (tests) and the browser. Import `spell` in a way that works for both: `const KS = (typeof require !== 'undefined') ? require('./key-spelling.js') : window.KeySpelling;`. Every place a name is emitted for display uses `KS.spell(pc, estimatedKey)`. When `estimatedKey` is omitted (undefined), `spell` receives `null` → default table (preserves current behaviour except sharps→the flat default). NOTE: `PC_NAMES` turns out to be used ONLY for display (interval matching is numeric via `QUALITIES`/`exactMatch`), so once all display lookups move to `KS.spell` it is dead and should be removed along with its export — do not keep it "for interval math" (it was never used that way).
 
 - [ ] **Step 1: Write the failing test (append to `web/js/chord.test.js`)**
 

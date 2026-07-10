@@ -53,6 +53,11 @@
   const chord = new window.ChordReadout(chordEl, impliedEl);
   const mic = window.createMicInput();
   const micOut = { pcEnergy: new Float32Array(12), chroma: new Float32Array(12), level: 0 };
+
+  // --- key estimator (drives note/chord spelling in both modes) ------------
+  const keyEst = window.KeySpelling.createKeyEstimator();
+  mic.setKeySource(() => keyEst.estimateKey());
+  let estimatedKey = null;   // refreshed each frame from keyEst
   // debug hook for verification (harmless in normal use)
   window.__vizDebug = { peakEnergy: () => viz.peakEnergy(), state: () => viz.debugState(),
     sampleColour: () => viz.sampleColour() };
@@ -85,13 +90,14 @@
       const m = NC.noteToColour(midi, notes.get(midi).velocity, params);
       parts.push(`${NC.PITCH_CLASSES[m.pcIndex]}${m.octave}`);
     }
-    notesReadout.textContent = parts.join('   ');
+    notesReadout.innerHTML = window.KeySpelling.accidentalHTML(parts.join('   '));
   }
 
   function noteOn(midi, velocity) {
     // ignore notes played softer than the velocity cutoff (debug panel > Midi)
     if (velocity < (params.velocityCutoff || 0)) return;
     notes.set(midi, { velocity, onTime: performance.now() / 1000 });
+    keyEst.addNoteOn(midi, velocity);
     viz.pulse();
     refreshLit();
     refreshReadout();
@@ -146,6 +152,7 @@
     impliedEl.textContent = ''; impliedEl.style.opacity = '0';
     chord.last = null; chord.lastImplied = null;
     wheelSpans.forEach((s) => s.classList.remove('lit'));
+    keyEst.reset(); estimatedKey = null;
 
     if (mode === 'mic') {
       keys.disable();
@@ -177,6 +184,43 @@
   });
   panel.render();
 
+  // mic + key dials: a second panel over a separate settings object, persisted
+  // under its own storage key. holdMs/minConfidence live on mic.chordSettings;
+  // the half-lives and margin live on keyEst.settings. onChange copies the
+  // panel's params onto those live objects so changes apply immediately.
+  const MIC_SECTIONS = [
+    { title: 'Mic Chord', sliders: [
+      ['holdMs', 'hold time (ms)', 0, 500, 5, (v) => `${Math.round(v)} ms`],
+      ['minConfidence', 'min confidence', 0.4, 0.9, 0.01, (v) => `${Math.round(v * 100)}%`],
+    ], toggles: [] },
+    { title: 'Key', sliders: [
+      ['halfLifeMidiSec', 'key half-life (midi)', 0.5, 6, 0.1, (v) => `${v.toFixed(1)} s`],
+      ['halfLifeMicSec', 'key half-life (mic)', 1, 8, 0.1, (v) => `${v.toFixed(1)} s`],
+      ['confidenceMargin', 'key confidence', 0.0, 0.15, 0.005, (v) => v.toFixed(3)],
+    ], toggles: [] },
+  ];
+  const micPanel = new window.DebugPanel({
+    container: document.getElementById('micPanel'),
+    storageKey: 'chromesthesia.micParams',
+    idPrefix: 'mic',
+    defaults: {
+      holdMs: mic.chordSettings.holdMs,
+      minConfidence: mic.chordSettings.minConfidence,
+      halfLifeMidiSec: keyEst.settings.halfLifeMidiSec,
+      halfLifeMicSec: keyEst.settings.halfLifeMicSec,
+      confidenceMargin: keyEst.settings.confidenceMargin,
+    },
+    sections: MIC_SECTIONS,
+    onChange: (p) => {
+      mic.chordSettings.holdMs = p.holdMs;
+      mic.chordSettings.minConfidence = p.minConfidence;
+      keyEst.settings.halfLifeMidiSec = p.halfLifeMidiSec;
+      keyEst.settings.halfLifeMicSec = p.halfLifeMicSec;
+      keyEst.settings.confidenceMargin = p.confidenceMargin;
+    },
+  });
+  micPanel.render();
+
   document.getElementById('minBtn').addEventListener('click', () => {
     document.getElementById('dsp').classList.toggle('min');
   });
@@ -186,20 +230,28 @@
 
   // --- render loop ---------------------------------------------------------
   function frame(now) {
+    const tSec = now / 1000;
     if (mode === 'mic') {
-      mic.analyse(now / 1000, micOut);
+      mic.analyse(tSec, micOut);
+      // feed pitch-class energy (micOut.pcEnergy is 0=A) into the estimator
+      for (let pcA = 0; pcA < 12; pcA++) keyEst.addMicEnergyPc(pcA, micOut.pcEnergy[pcA]);
+      keyEst.decayTo(tSec, 'mic');
+      // mic chord spelling pulls the key via mic.setKeySource's callback, so
+      // the estimate is read there — no need to refresh estimatedKey here.
       viz.renderMic(now, micOut.pcEnergy);
       refreshLitFromEnergy(micOut.pcEnergy);
-      // mic chord is a fuzzy ESTIMATE from the smoothed spectrum
-      const name = mic.detectChordName();
+      // stabilized (flicker-free) chord name; stabilizer ran inside analyse()
+      const name = mic.estimateStableChordName();
       if (name !== chordEl.textContent) {
-        chordEl.textContent = name || '';
+        chordEl.innerHTML = window.KeySpelling.accidentalHTML(name || '');
         chordEl.style.opacity = name ? '1' : '0';
       }
     } else {
+      keyEst.decayTo(tSec, 'midi');
+      estimatedKey = keyEst.estimateKey();
       viz.renderMidi(now, notes);
       // MIDI chord readout is driven by the EXACT held notes (no filtering)
-      chord.update(notes.keys());
+      chord.update(notes.keys(), estimatedKey);
     }
     requestAnimationFrame(frame);
   }

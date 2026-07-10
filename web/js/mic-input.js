@@ -25,11 +25,40 @@
 //                 level: 0 };
 //   // each animation frame:
 //   mic.analyse(performance.now() / 1000, out);
-//   const chord = mic.detectChordName();   // e.g. "Cmaj7" or null
+//   const chord = mic.estimateStableChordName();   // committed name inside analyse(); '' = none
 //   // ...
 //   mic.disable();
 
 'use strict';
+
+// Shared key-aware speller. Named distinctly (NOT `KS`) because chord.js also
+// declares a top-level `const KS`; classic browser scripts share one global
+// scope, so a duplicate `const KS` here would be a load-time SyntaxError.
+const KEY_SPELLING = (typeof require !== 'undefined')
+  ? require('./key-spelling.js')
+  : (typeof window !== 'undefined' ? window.KeySpelling : null);
+
+// Confidence gate + asymmetric hold hysteresis over the fuzzy per-frame chord
+// estimate, so the mic readout does not flicker. getSettings() returns live
+// { holdMs, minConfidence } so debug-panel changes take effect immediately.
+// update(now, name, conf) -> the committed display string ('' = show nothing);
+// now is in SECONDS.
+function createChordStabilizer(getSettings) {
+  let shown = '';            // currently displayed name ('' = nothing)
+  let cand = null;           // candidate we're timing toward ('' = the "clear" candidate)
+  let candSince = 0;         // when `cand` first appeared (seconds)
+
+  function update(now, name, conf) {
+    const { holdMs, minConfidence } = getSettings();
+    // sub-confidence => no candidate this frame; '' is the "clear" candidate
+    const frame = (name && conf >= minConfidence) ? name : '';
+    if (frame !== cand) { cand = frame; candSince = now; }
+    if (cand !== shown && (now - candSince) * 1000 >= holdMs) shown = cand;
+    return shown;
+  }
+  function reset() { shown = ''; cand = null; candSince = 0; }
+  return { update, reset };
+}
 
 function createMicInput() {
   // ------------------------------------------------------------- constants
@@ -47,9 +76,6 @@ function createMicInput() {
 
   // overtone-suppression peak table
   const PEAK_CAP = 80;
-
-  // pitch-class names, index 0 = A (matches the wheel's 12 o'clock)
-  const NOTE_NAMES = ['A', 'A#', 'B', 'C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#'];
 
   // one template per chord quality; all 12 roots are rotations of the chroma
   // vector, so we score template x rotated chroma (see detectChord).
@@ -74,6 +100,16 @@ function createMicInput() {
 
   // exposed so a debug panel can tweak the six DSP knobs live
   const dsp = Object.assign({}, DSP_PRESETS.melodic);
+
+  // mic chord readout stabilizer settings (mutated live by the debug panel)
+  const chordSettings = { holdMs: 120, minConfidence: 0.6 };
+
+  // supplies the current estimated key (0=C convention) for chord-name spelling;
+  // set by the host (main.js). null => neutral default spelling.
+  let getEstimatedKey = () => null;
+  function setKeySource(fn) { getEstimatedKey = fn || (() => null); }
+  const stabilizer = createChordStabilizer(() => chordSettings);
+  let lastStableName = '';
 
   // ----------------------------------------------------------------- state
   // per-frame accumulators and smoothed chroma for the chord detector
@@ -399,6 +435,7 @@ function createMicInput() {
     });
     micCtx = new (window.AudioContext || window.webkitAudioContext)();
     micAna = makeAnalysers(micCtx, micCtx.createMediaStreamSource(micStream));
+    stabilizer.reset(); lastStableName = '';
   }
 
   // stop the stream, close the context, and clear references (ports disableMic;
@@ -407,6 +444,7 @@ function createMicInput() {
     if (micStream) micStream.getTracks().forEach((t) => t.stop());
     if (micCtx) micCtx.close();
     micCtx = micAna = micStream = null;
+    stabilizer.reset(); lastStableName = '';
   }
 
   // Read the FFT, run the DSP stack, fold into per-pitch-class energy, and fill
@@ -456,6 +494,10 @@ function createMicInput() {
     for (let i = 0; i < 12; i++) chroma[i] += (chromaRaw[i] - chroma[i]) * 0.07;
     out.chroma.set(chroma);
     out.level = state.level;
+
+    // gate the fuzzy chord estimate so the readout does not flicker
+    const det = detectChord();
+    lastStableName = stabilizer.update(now, det ? det.name : null, det ? det.conf : 0);
   }
 
   // Fuzzy chord ESTIMATE from the smoothed chroma (ports detectChord). Returns
@@ -486,28 +528,32 @@ function createMicInput() {
     let frac = 0;
     for (const iv of best.q.ivs) frac += c[(best.root + iv) % 12];
     if (frac < 0.5) return null;   // too much energy outside the chord tones
+    const rootPcC = (best.root + 9) % 12;               // 0=A -> 0=C (A is pc 9)
+    // NOTE: `name` is spelled in 0=C (via the shared speller); `root`/`pcs`
+    // stay 0=A for the visualizer.
     return {
-      name: NOTE_NAMES[best.root] + best.q.name,
+      name: KEY_SPELLING.spell(rootPcC, getEstimatedKey()) + best.q.name,
       root: best.root,
       pcs: best.q.ivs.map((iv) => (best.root + iv) % 12),
       conf: frac,   // fraction of energy on chord tones (~0.5 weak .. 1.0 pure)
     };
   }
 
-  // public wrapper: just the chord name string, or null
-  function detectChordName() {
-    const det = detectChord();
-    return det ? det.name : null;
-  }
+  // committed, flicker-free chord name for display (updated each analyse())
+  function estimateStableChordName() { return lastStableName; }
 
   return {
     enable,
     disable,
     analyse,
-    detectChordName,
+    estimateStableChordName,  // stabilized name for the readout
     dsp,
+    chordSettings,
+    setKeySource,             // host supplies the current estimated key for spelling
   };
 }
 
 if (typeof window !== 'undefined') window.createMicInput = createMicInput;
-if (typeof module !== 'undefined' && module.exports) module.exports = { createMicInput };
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { createMicInput, createChordStabilizer };
+}
