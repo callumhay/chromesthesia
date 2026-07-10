@@ -539,12 +539,6 @@ function createMicInput() {
     };
   }
 
-  // public wrapper: just the chord name string, or null
-  function detectChordName() {
-    const det = detectChord();
-    return det ? det.name : null;
-  }
-
   // committed, flicker-free chord name for display (updated each analyse())
   function estimateStableChordName() { return lastStableName; }
 
@@ -552,7 +546,6 @@ function createMicInput() {
     enable,
     disable,
     analyse,
-    detectChordName,          // raw per-frame estimate (kept for completeness)
     estimateStableChordName,  // stabilized name for the readout
     dsp,
     chordSettings,
