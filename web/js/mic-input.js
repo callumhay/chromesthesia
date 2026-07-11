@@ -102,7 +102,7 @@ function createMicInput() {
   const dsp = Object.assign({}, DSP_PRESETS.melodic);
 
   // mic chord readout stabilizer settings (mutated live by the debug panel)
-  const chordSettings = { holdMs: 120, minConfidence: 0.6 };
+  const chordSettings = { holdMs: 100, minConfidence: 0.55 };
 
   // supplies the current estimated key (0=C convention) for chord-name spelling;
   // set by the host (main.js). null => neutral default spelling.
