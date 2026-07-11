@@ -165,20 +165,15 @@ void main() {
     col += h.rgb * h.a * EMAX * (0.55 + 0.95 * ha) * trailMask;
   }
 
-  // --- leading rim stack (waveloop's original, verbatim). The colour comes
-  // from the trail's own rgb (coreRgb) which already carries the note's
-  // octave-shaded chromesthesia colour, deposited by feedNotes - so octave is
-  // baked into the colour and the rim just uses it. Total height is the angle's
-  // energy; the stack grows outward from the ring.
-  vec4 hn[4];
+  // --- leading rim stack. Total height/brightness is the angle's summed energy
+  // (eTot) from the 4 register bands at the ring; the stack grows outward from
+  // the ring. The stack's COLOUR now comes from glowCol (see below), not the
+  // history texture, so eTot here is only the energy magnitude.
   float eTot = 0.0;
-  vec3 coreRgb = vec3(0.0);
   for (int j = 0; j < 4; j++) {
-    hn[j] = radAt(pc01, 0.0, float(j));
-    eTot += hn[j].a * hn[j].a * EMAX;
-    coreRgb += hn[j].rgb * hn[j].a * EMAX;
+    vec4 hj = radAt(pc01, 0.0, float(j));
+    eTot += hj.a * hj.a * EMAX;
   }
-  if (eTot > 1e-4) coreRgb /= eTot;             // recover the octave-shaded hue
 
   float s2 = eTot * eTot;
   float stackH = 0.006 + 0.30 * s2 / (s2 + 4.0);
@@ -192,18 +187,25 @@ void main() {
   float stk = smoothstep(-aa, aa, xo) - smoothstep(stackH - aa, stackH + aa, xo);
   if (stk > 0.001) {
     float bright = 0.25 + 0.85 * min(eTot, 2.2);
-    col += coreRgb * stk * bright;
+    // Colour the rim with glowCol (the aurora's per-note hue from u_pcGlow), NOT
+    // coreRgb. coreRgb comes from the energy-premultiplied history texture, whose
+    // rgb AND alpha both dip toward zero as a note goes quiet; recovering the hue
+    // by dividing then amplified quantisation/stale-colour into a muddy dark value
+    // right at the note's spoke centre - the dark wedge. glowCol is deposited
+    // straight from the note colour and stays the note's proper hue as it fades.
+    col += glowCol * stk * bright;
   }
 
   float ringGlow = exp(-abs(r - r0) * 70.0);
-  // How much this angle's halo takes the note colour vs the dim green base. A
-  // steep clamp(eTot*4) snapped from bright note-colour to dim green over a
-  // couple of pixels at the plume's angular edge, clipping a hard dark notch
-  // into the halo fringe (worst on bright/high-velocity notes). smoothstep
-  // spreads that transition so the halo blends gradually into the ring.
-  float occupied = smoothstep(0.0, 1.2, eTot);
+  // Halo colour. Driven by note PRESENCE (glowAmt, from u_pcGlow) and coloured by
+  // glowCol - both stable as a note fades - rather than by eTot/coreRgb from the
+  // energy-premultiplied history texture, which dipped to a muddy dark value at a
+  // fading note's spoke and clipped a dark wedge into the halo. Where a note is
+  // present the halo is a steady glow in the note's proper colour; where none is,
+  // it falls back to the dim green base.
+  float presence = clamp(glowAmt * 2.0, 0.0, 1.0);
   vec3 ringCol = mix(phos * (0.06 + 0.13 * u_level),
-                     coreRgb * (0.5 + 0.5 * u_level), occupied);
+                     glowCol * (0.5 + 0.5 * u_level), presence);
   col += ringCol * ringGlow;
 
   float tickBand = smoothstep(0.0, 0.004, r - (RT + 0.012))
