@@ -34,7 +34,7 @@ const QUALITIES = [
   { name: '7',    ivs: [0, 4, 7, 10] },
   { name: 'maj7', ivs: [0, 4, 7, 11] },
   { name: 'm7',   ivs: [0, 3, 7, 10] },
-  { name: 'm7b5', ivs: [0, 3, 6, 10] },
+  { name: 'ø7',   ivs: [0, 3, 6, 10] },     // half-diminished (a.k.a. m7b5)
   { name: 'dim7', ivs: [0, 3, 6, 9] },
   { name: '6',    ivs: [0, 4, 7, 9] },
   { name: 'm6',   ivs: [0, 3, 7, 9] },
@@ -123,7 +123,7 @@ const IMPLIED = [
   { name: '7',    ivs: [0, 4, 7, 10], required: [0, 10],     min: 3 },
   { name: 'maj7', ivs: [0, 4, 7, 11], required: [0, 4, 11],  min: 3 },
   { name: 'm7',   ivs: [0, 3, 7, 10], required: [0, 3, 10],  min: 3 },
-  { name: 'm7b5', ivs: [0, 3, 6, 10], required: [0, 3, 6, 10], min: 3 },
+  { name: 'ø7',   ivs: [0, 3, 6, 10], required: [0, 3, 6, 10], min: 3 },   // half-dim
   { name: 'dim7', ivs: [0, 3, 6, 9],  required: [0, 3, 6, 9],  min: 4 },
   { name: '6',    ivs: [0, 4, 7, 9],  required: [0, 4, 9],   min: 3 },
   { name: 'm6',   ivs: [0, 3, 7, 9],  required: [0, 3, 9],   min: 3 },

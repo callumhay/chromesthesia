@@ -22,14 +22,15 @@ test('same notes with A in bass -> "Am7 / C6"', () => {
   assert.strictEqual(nameFromMidiNotes([57, 60, 64, 67]), 'Am7 / C6');  // A3 C4 E4 G4
 });
 
-// --- m7b5 == m6 : Am7b5 (A C Eb G) == Cm6 (C Eb G A) ----------------------
+// --- ø7 == m6 : Aø7 (A C Eb G) == Cm6 (C Eb G A) --------------------------
+// half-diminished is written with the slashed-o symbol (Aø7), not "Am7b5"
 
-test('A C Eb G with A in bass -> "Am7b5 / Cm6"', () => {
-  assert.strictEqual(nameFromMidiNotes([57, 60, 63, 67]), 'Am7b5 / Cm6'); // A3 C4 Eb4 G4
+test('A C Eb G with A in bass -> "Aø7 / Cm6"', () => {
+  assert.strictEqual(nameFromMidiNotes([57, 60, 63, 67]), 'Aø7 / Cm6'); // A3 C4 Eb4 G4
 });
 
-test('same notes with C in bass -> "Cm6 / Am7b5"', () => {
-  assert.strictEqual(nameFromMidiNotes([60, 63, 67, 69]), 'Cm6 / Am7b5'); // C4 Eb4 G4 A4
+test('same notes with C in bass -> "Cm6 / Aø7"', () => {
+  assert.strictEqual(nameFromMidiNotes([60, 63, 67, 69]), 'Cm6 / Aø7'); // C4 Eb4 G4 A4
 });
 
 // --- symmetric aug: C E G# = 3 names --------------------------------------
