@@ -69,7 +69,7 @@ const float RBINS = 256.0;
 const float REGS = 4.0;
 const float TROWS = RBINS * REGS;
 const float R0 = 0.19;
-const float RT = 0.38;   // note-label tick-mark radius (5% inward, pairs with labels)
+const float RT = 0.361;  // note-label tick-mark radius (~10% inward, pairs with labels)
 const float EMAX = 2.0;
 
 float hash(vec2 p) {
