@@ -55,7 +55,7 @@
     wheelSlots.push(slot);
   }
   function layoutLabels() {
-    const R = 0.455 * Math.min(innerWidth, innerHeight);
+    const R = 0.432 * Math.min(innerWidth, innerHeight);   // 5% inward from 0.455
     const cx = innerWidth / 2, cy = innerHeight / 2;
     wheelSlots.forEach((s, i) => {
       const th = (i / 12) * Math.PI * 2;   // i=0 (A) -> top; clockwise
