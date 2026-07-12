@@ -20,18 +20,44 @@
   }
 
   // --- wheel labels: 12 pitch classes, A at 12 o'clock, clockwise ----------
-  const WHEEL = ['A', 'A#', 'B', 'C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#'];
+  // Each pitch class is a positioned container (wheelSlots[pc]). Naturals hold a
+  // single fixed name. The 5 accidentals hold TWO stacked spans (sharp + flat)
+  // that crossfade by opacity, so the label morphs to the key-correct spelling
+  // (A# <-> Bb) instead of swapping abruptly. The container carries the position
+  // and the `.lit` class; CSS lights whichever span is active.
+  const NAT = ['A', null, 'B', 'C', null, 'D', null, 'E', 'F', null, 'G', null];
+  // accidental pitch classes -> [sharp, flat] names (0 = A convention)
+  const ACC = { 1: ['A#', 'Bb'], 4: ['C#', 'Db'], 6: ['D#', 'Eb'],
+                9: ['F#', 'Gb'], 11: ['G#', 'Ab'] };
   const wheelEl = document.getElementById('wheel');
-  const wheelSpans = WHEEL.map((name) => {
-    const s = document.createElement('span');
-    s.textContent = name;
-    wheelEl.appendChild(s);
-    return s;
-  });
+  const wheelSlots = [];   // indexed by pitch class (0 = A)
+  // per-accidental respell state: shown = the committed spelling ('#' | 'b'),
+  // pending = a target that hasn't dwelt long enough yet, pendingSince = when it
+  // first appeared (seconds). sharpEl/flatEl are the two stacked spans.
+  const accState = {};
+  for (let pc = 0; pc < 12; pc++) {
+    const slot = document.createElement('div');
+    slot.className = 'wheel-slot';
+    if (NAT[pc] !== null) {
+      const s = document.createElement('span');
+      s.textContent = NAT[pc];
+      slot.appendChild(s);
+    } else {
+      const [sharp, flat] = ACC[pc];
+      const sharpEl = document.createElement('span');
+      sharpEl.textContent = sharp;
+      const flatEl = document.createElement('span');
+      flatEl.textContent = flat; flatEl.classList.add('alt-hidden');
+      slot.append(sharpEl, flatEl);
+      accState[pc] = { shown: '#', pending: null, pendingSince: 0, sharpEl, flatEl };
+    }
+    wheelEl.appendChild(slot);
+    wheelSlots.push(slot);
+  }
   function layoutLabels() {
     const R = 0.455 * Math.min(innerWidth, innerHeight);
     const cx = innerWidth / 2, cy = innerHeight / 2;
-    wheelSpans.forEach((s, i) => {
+    wheelSlots.forEach((s, i) => {
       const th = (i / 12) * Math.PI * 2;   // i=0 (A) -> top; clockwise
       s.style.left = (cx + R * Math.sin(th)) + 'px';
       s.style.top = (cy - R * Math.cos(th)) + 'px';
@@ -39,6 +65,30 @@
   }
   layoutLabels();
   window.addEventListener('resize', layoutLabels);
+
+  // Respell the accidental labels toward the estimated key with a per-label
+  // dwell (0.5 s) + CSS opacity crossfade. estimateKey() is already confidence-
+  // gated (returns null unless the key clearly wins), so this adds only a debounce
+  // on the visible flip, not a second confidence check. When the key is null
+  // (ambiguous) each label HOLDS its current spelling rather than reverting.
+  const RESPELL_DWELL_SEC = 0.5;
+  function updateWheelSpelling(key, nowSec) {
+    if (!key) return;                          // ambiguous -> hold current spelling
+    for (const pc in ACC) {
+      const st = accState[pc];
+      // 0=A pc -> 0=C for the speller: pcC = (pcA + 9) % 12
+      const name = window.KeySpelling.spell((+pc + 9) % 12, key);
+      const want = name.indexOf('b') > 0 ? 'b' : '#';   // which spelling the key wants
+      if (want === st.shown) { st.pending = null; continue; }
+      if (want !== st.pending) { st.pending = want; st.pendingSince = nowSec; continue; }
+      if (nowSec - st.pendingSince >= RESPELL_DWELL_SEC) {
+        st.shown = want; st.pending = null;
+        const flat = want === 'b';
+        st.flatEl.classList.toggle('alt-hidden', !flat);
+        st.sharpEl.classList.toggle('alt-hidden', flat);
+      }
+    }
+  }
 
   // --- active note state ---------------------------------------------------
   const notes = new Map();        // midi -> { velocity, onTime }
@@ -64,12 +114,12 @@
 
   function litPitchClass(pc, on) {
     // light the wheel label of any active pitch class
-    wheelSpans[pc].classList.toggle('lit', on);
+    wheelSlots[pc].classList.toggle('lit', on);
   }
   function refreshLit() {
     const active = new Set();
     for (const midi of notes.keys()) active.add(NC.midiToPitchClassIndex(midi));
-    wheelSpans.forEach((s, i) => s.classList.toggle('lit', active.has(i)));
+    wheelSlots.forEach((s, i) => s.classList.toggle('lit', active.has(i)));
   }
   // mic mode: light wheel labels for the pitch classes carrying real energy.
   // An absolute floor keeps ambient noise (very low energy) from lighting
@@ -77,8 +127,8 @@
   function refreshLitFromEnergy(pcEnergy) {
     let maxE = 0;
     for (let i = 0; i < 12; i++) if (pcEnergy[i] > maxE) maxE = pcEnergy[i];
-    if (maxE < 1e-3) { wheelSpans.forEach((s) => s.classList.remove('lit')); return; }
-    wheelSpans.forEach((s, i) => s.classList.toggle('lit', pcEnergy[i] / maxE > 0.4));
+    if (maxE < 1e-3) { wheelSlots.forEach((s) => s.classList.remove('lit')); return; }
+    wheelSlots.forEach((s, i) => s.classList.toggle('lit', pcEnergy[i] / maxE > 0.4));
   }
 
   // live readout of active notes + the octave value driving the cel halo
@@ -151,7 +201,7 @@
     chordEl.textContent = '';
     impliedEl.textContent = ''; impliedEl.style.opacity = '0';
     chord.last = null; chord.lastImplied = null;
-    wheelSpans.forEach((s) => s.classList.remove('lit'));
+    wheelSlots.forEach((s) => s.classList.remove('lit'));
     keyEst.reset(); estimatedKey = null;
 
     if (mode === 'mic') {
@@ -236,8 +286,8 @@
       // feed pitch-class energy (micOut.pcEnergy is 0=A) into the estimator
       for (let pcA = 0; pcA < 12; pcA++) keyEst.addMicEnergyPc(pcA, micOut.pcEnergy[pcA]);
       keyEst.decayTo(tSec, 'mic');
-      // mic chord spelling pulls the key via mic.setKeySource's callback, so
-      // the estimate is read there — no need to refresh estimatedKey here.
+      estimatedKey = keyEst.estimateKey();   // used by the wheel labels (mic chord
+                                             // spelling reads its own via setKeySource)
       viz.renderMic(now, micOut.pcEnergy);
       refreshLitFromEnergy(micOut.pcEnergy);
       // stabilized (flicker-free) chord name; stabilizer ran inside analyse()
@@ -253,6 +303,8 @@
       // MIDI chord readout is driven by the EXACT held notes (no filtering)
       chord.update(notes.keys(), estimatedKey);
     }
+    // fade the accidental wheel labels toward the key-correct spelling (both modes)
+    updateWheelSpelling(estimatedKey, tSec);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

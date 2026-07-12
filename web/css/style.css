@@ -30,15 +30,24 @@ body {
 }
 
 /* pitch-class wheel labels */
-#wheel span {
-  position: fixed; z-index: 1;
-  transform: translate(-50%, -50%);
-  font-family: "VT323", ui-monospace, monospace; font-size: 19px;
-  color: rgba(207,238,226,0.38);
-  transition: color 0.25s, text-shadow 0.25s;
+/* Each pitch-class label is a positioned slot, its centre pinned to the wheel
+   point. Naturals hold one span; the 5 accidentals hold two spans (sharp + flat)
+   stacked on the slot centre that crossfade by opacity, so the label morphs to
+   the key-correct spelling instead of swapping abruptly. */
+.wheel-slot {
+  position: fixed; z-index: 1; width: 0; height: 0;
   user-select: none; pointer-events: none;
 }
-#wheel span.lit { color: var(--phos); text-shadow: 0 0 12px var(--phos-dim); }
+.wheel-slot span {
+  position: absolute; left: 0; top: 0;
+  transform: translate(-50%, -50%);      /* centre each span on the slot point */
+  font-family: "VT323", ui-monospace, monospace; font-size: 19px;
+  color: rgba(207,238,226,0.38);
+  transition: color 0.25s, text-shadow 0.25s, opacity 0.6s ease;
+  white-space: nowrap;
+}
+.wheel-slot span.alt-hidden { opacity: 0; }   /* the inactive spelling, faded out */
+.wheel-slot.lit span { color: var(--phos); text-shadow: 0 0 12px var(--phos-dim); }
 
 /* chord readout in the center of the wheel */
 #chordbox {
@@ -194,7 +203,7 @@ button:active { transform: translateY(1px); }
 .hint.min .readout, .hint.min .hintbody { display: none; }
 
 @media (max-width: 700px) {
-  #wheel span { font-size: 14px; }
+  .wheel-slot span { font-size: 14px; }
   #chordname { font-size: 40px; min-height: 40px; }
   .panel { width: calc(100vw - 36px); }
   .hint { display: none; }
