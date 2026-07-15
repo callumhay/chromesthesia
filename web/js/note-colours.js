@@ -68,21 +68,37 @@ const EMBEDDED_NOTE_COLOURS = {
 };
 /* END EMBEDDED_NOTE_COLOURS */
 
-// Load the shared colour table. Tries to fetch note_colours.json (the source of
-// truth when served over HTTP); if the fetch fails - most commonly because the
-// page was opened as a file:// URL - falls back to the embedded copy so the
-// view still works. Returns the loaded colour table.
-async function loadNoteColours(url = '../note_colours.json') {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`status ${res.status}`);
-    const data = await res.json();
-    setNoteColours(data);
-    return data;
-  } catch (e) {
-    setNoteColours(EMBEDDED_NOTE_COLOURS);
-    return EMBEDDED_NOTE_COLOURS;
+// Where note_colours.json sits relative to index.html depends on how the app is
+// served: beside it when web/ is the site root (GitHub Pages, which copies the
+// file in - see .github/workflows), one level up when the repo root is served.
+// Try both rather than pick one and 404 on the other.
+const NOTE_COLOURS_URLS = ['./note_colours.json', '../note_colours.json'];
+
+// Load the shared colour table (the source of truth when served over HTTP),
+// trying each candidate URL in order. Falls back to the embedded copy if none
+// resolve - most commonly on a file:// URL, where browsers deny fetch outright.
+// Returns the loaded colour table.
+async function loadNoteColours(urls = NOTE_COLOURS_URLS) {
+  // './' and '../' resolve to the SAME URL when the page is already at the site
+  // root, so drop duplicates rather than fetch (and log) the same 404 twice.
+  const seen = new Set();
+  for (const url of [].concat(urls)) {
+    const resolved = (typeof URL === 'function' && typeof location !== 'undefined')
+      ? new URL(url, location.href).href : url;
+    if (seen.has(resolved)) continue;
+    seen.add(resolved);
+    try {
+      const res = await fetch(resolved);
+      if (!res.ok) continue;
+      const data = await res.json();
+      setNoteColours(data);
+      return data;
+    } catch (e) {
+      // unreachable/blocked/malformed - try the next candidate
+    }
   }
+  setNoteColours(EMBEDDED_NOTE_COLOURS);
+  return EMBEDDED_NOTE_COLOURS;
 }
 
 // Inject a colour table directly (used by tests and by loadNoteColours).

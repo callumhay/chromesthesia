@@ -12,7 +12,7 @@
 
   // --- load the shared colour source of truth ------------------------------
   try {
-    await NC.loadNoteColours('../note_colours.json');
+    await NC.loadNoteColours();
   } catch (e) {
     console.error(e);
     document.getElementById('chordname').textContent = 'colour load failed';
