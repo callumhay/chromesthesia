@@ -27,7 +27,12 @@ const CQ = (typeof require !== 'undefined')
 // Hard dependency: chord-qualities.js must load BEFORE this file (see index.html
 // script order). Assert rather than dying later on a confusing null-property read.
 if (!CQ || !CQ.CHORD_QUALITIES) throw new Error('chord.js: chord-qualities.js must load first');
-const CHORD_QUALITIES = CQ.CHORD_QUALITIES;
+// Read through CQ rather than aliasing to a bare top-level name: in the browser
+// these are classic scripts sharing ONE global scope, so a second top-level
+// `const CHORD_QUALITIES` collides with chord-qualities.js's own declaration and
+// kills the whole page at parse time. Node's per-file module scope hides this,
+// so the test suite cannot catch it - keep every cross-file global namespaced.
+const QUALITIES = CQ.CHORD_QUALITIES;
 
 // Unique pitch-class set (0..11) from a list of MIDI note numbers. Also returns
 // the pitch classes ordered by the lowest MIDI note at which each appears, so
@@ -61,7 +66,7 @@ function exactMatch(heldSet, root, ivs) {
 function chordNames(heldSet, bassPc, estimatedKey) {
   const matches = [];
   for (let root = 0; root < 12; root++) {
-    for (const q of CHORD_QUALITIES) {
+    for (const q of QUALITIES) {
       if (exactMatch(heldSet, root, q.ivs)) {
         matches.push({ root, quality: q.name, name: KS.spell(root, estimatedKey) + q.name });
       }
@@ -116,8 +121,8 @@ function impliedChord(midiNotes, estimatedKey) {
   const lowestPc = order[0];
   const candidates = [];
   for (let root = 0; root < 12; root++) {
-    for (let qi = 0; qi < CHORD_QUALITIES.length; qi++) {
-      const q = CHORD_QUALITIES[qi];
+    for (let qi = 0; qi < QUALITIES.length; qi++) {
+      const q = QUALITIES[qi];
       // every required (identity) tone must be present
       if (!q.required.every((iv) => set.has((root + iv) % 12))) continue;
       // count how many of the quality's tones are held (coverage)
@@ -137,7 +142,7 @@ function impliedChord(midiNotes, estimatedKey) {
   }
   if (candidates.length === 0) return null;
 
-  // tie-break: prefer simpler quality (earlier in CHORD_QUALITIES = smaller/commoner),
+  // tie-break: prefer simpler quality (earlier in the vocabulary = smaller/commoner),
   // then the candidate rooted on the lowest held note, then more tones present.
   candidates.sort((a, b) =>
     a.size - b.size || a.qi - b.qi ||
