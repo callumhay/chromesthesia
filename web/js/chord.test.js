@@ -133,4 +133,46 @@ test('nameFromPitchClasses: bassPc drives the alias ordering', () => {
   assert.strictEqual(nameFromPitchClasses(new Set([0, 4, 7, 9]), 9, null), 'Am7 / C6');
 });
 
+// --- dim7 root: key leading-tone first, else bass -------------------------
+// dim7 is symmetric (4 equally-valid roots a minor 3rd apart), so which name
+// leads is a music-theory choice, not interval math: in a key the diatonic
+// function is the vii°7, rooted on the LEADING TONE (tonic - 1).
+// G# B D F = pcs 8, 11, 2, 5.
+
+test('dim7 roots on the key leading tone (A minor -> G#dim7 first)', () => {
+  const aMinor = { tonic: 9, mode: 'minor' };
+  const r = nameFromPitchClasses(new Set([8, 11, 2, 5]), 2 /*bass D*/, aMinor);
+  assert.ok(r.startsWith('G#dim7'), `expected G#dim7 first, got "${r}"`);
+});
+
+test('dim7 roots on the key leading tone (C major -> Bdim7 first)', () => {
+  const cMajor = { tonic: 0, mode: 'major' };
+  const r = nameFromPitchClasses(new Set([8, 11, 2, 5]), 2 /*bass D*/, cMajor);
+  assert.ok(r.startsWith('Bdim7'), `expected Bdim7 first, got "${r}"`);
+});
+
+test('dim7 with no key falls back to the bass (bass F -> Fdim7 first)', () => {
+  const r = nameFromPitchClasses(new Set([8, 11, 2, 5]), 5 /*bass F*/, null);
+  assert.ok(r.startsWith('Fdim7'), `expected Fdim7 first, got "${r}"`);
+});
+
+test('dim7 with a key whose leading tone is not a root falls back to bass', () => {
+  // Db E G Bb (pcs 1,4,7,10) in C major: leading tone B(11) is NOT one of the
+  // four roots, so the bass wins. Bass E(4) -> Edim7 first.
+  const cMajor = { tonic: 0, mode: 'major' };
+  const r = nameFromPitchClasses(new Set([1, 4, 7, 10]), 4 /*bass E*/, cMajor);
+  assert.ok(r.startsWith('Edim7'), `expected Edim7 first, got "${r}"`);
+});
+
+// The rule is dim7-only. aug is also symmetric (3 roots a major 3rd apart), but
+// it has no leading-tone function - a key whose LT happens to land on an aug root
+// must NOT reorder it. This pins the dim7-only scope of the guard.
+test('aug is not reordered by the key leading tone (bass still wins)', () => {
+  // C E G# = pcs 0,4,8. In Db major (tonic 1) the leading tone is C (pc 0),
+  // which IS one of the aug's roots - the bass must still win.
+  const dbMajor = { tonic: 1, mode: 'major' };
+  const r = nameFromPitchClasses(new Set([0, 4, 8]), 4 /*bass E*/, dbMajor);
+  assert.ok(r.startsWith('Eaug'), `aug must follow the bass, got "${r}"`);
+});
+
 console.log(`\n${passed} tests passed.`);

@@ -53,7 +53,8 @@ function exactMatch(heldSet, root, ivs) {
 }
 
 // All exact names for the held pitch-class set (chord aliases), ordered so the
-// interpretation rooted on the bass note comes first, then by root ascending.
+// preferred interpretation comes first (the bass-rooted one, except for a dim7
+// in a key - see below), then by root ascending.
 // The same notes can name more than one chord (C6 == Am7, symmetric aug/dim7),
 // so this returns every valid (root, quality) match. Empty if not a chord.
 // bassPc: the pitch class of the lowest held note (may be null).
@@ -62,13 +63,28 @@ function chordNames(heldSet, bassPc, estimatedKey) {
   for (let root = 0; root < 12; root++) {
     for (const q of CHORD_QUALITIES) {
       if (exactMatch(heldSet, root, q.ivs)) {
-        matches.push({ root, name: KS.spell(root, estimatedKey) + q.name });
+        matches.push({ root, quality: q.name, name: KS.spell(root, estimatedKey) + q.name });
       }
     }
   }
+  // Which interpretation leads. Normally the bass-rooted one. A dim7 is the
+  // exception: it is symmetric, so all four roots are equal by interval math -
+  // but musically the diatonic function is the vii°7, rooted on the key's
+  // leading tone (tonic - 1; in minor this is the harmonic-minor leading tone,
+  // which is precisely where the vii°7 comes from - natural minor's flat 7th is
+  // a subtonic and forms no dim7). Prefer that when the key supplies it;
+  // otherwise fall back to the bass like every other chord. dim7-only: aug is
+  // symmetric too but has no leading-tone function.
+  let preferredRoot = bassPc;
+  if (estimatedKey && matches.some((m) => m.quality === 'dim7')) {
+    const leadingTone = ((estimatedKey.tonic - 1) % 12 + 12) % 12;
+    if (matches.some((m) => m.root === leadingTone && m.quality === 'dim7')) {
+      preferredRoot = leadingTone;
+    }
+  }
   matches.sort((a, b) => {
-    const ab = a.root === bassPc ? -1 : 0, bb = b.root === bassPc ? -1 : 0;
-    return (ab - bb) || (a.root - b.root);
+    const ap = a.root === preferredRoot ? -1 : 0, bp = b.root === preferredRoot ? -1 : 0;
+    return (ap - bp) || (a.root - b.root);
   });
   return matches.map((m) => m.name);
 }
