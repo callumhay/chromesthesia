@@ -200,6 +200,19 @@ shared array:
 module.exports = { ChordReadout, nameFromMidiNotes, impliedChord, chordName, QUALITIES };
 ```
 
+**Carried forward from the Task 1 review — a pre-existing quirk to DECIDE here, not
+silently fix:** `ø7` has `required: [0,3,6,10]` (all four tones) with `min: 3`.
+Since all four are required, `present` is always 4, so **`min: 3` is dead** — it can
+never bind. Every comparable row disagrees: `dim`/`aug`/`sus2`/`sus4` use
+`min == ivs.length`, and `dim7` uses `min: 4`. This is copied faithfully from the
+original `chord.js:126`, so it is NOT a regression and Task 1 deliberately left it
+alone. Setting it to `min: 4` would make the table self-consistent but is a
+behaviour change to implied matching. Do NOT change it as part of this task's
+no-op swap. If you want to change it, do so as a SEPARATE commit after Step 4's
+regression run is green, and confirm `chord.implied.test.js` still passes — if it
+does, the change is provably inert and worth taking for consistency; if it does
+not, leave it and report.
+
 - [ ] **Step 4: Verify all chord tests pass UNCHANGED**
 
 Run: `node web/js/chord.test.js && node web/js/chord.alias.test.js && node web/js/chord.implied.test.js`
