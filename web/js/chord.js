@@ -195,7 +195,7 @@ class ChordReadout {
     const text = nameFromMidiNotes(notes, estimatedKey);
     if (text !== this.last) {
       this.last = text;
-      this.nameEl.innerHTML = KS.accidentalHTML(text);
+      this.nameEl.innerHTML = KS.readoutHTML(text);
       this.nameEl.style.opacity = text ? '1' : '0';
     }
     if (this.impliedEl) {

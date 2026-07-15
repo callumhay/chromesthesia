@@ -53,11 +53,14 @@ body {
 #chordbox {
   position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
   z-index: 1; text-align: center;
+  /* the readout breaks its own lines after the slash (see readoutHTML); cap the
+     box so a long alias list can never reach the wheel's note labels */
+  max-width: min(90vw, 620px);
   pointer-events: none; user-select: none;
 }
 #chordname {
   font-family: "VT323", ui-monospace, monospace;
-  font-size: 58px; line-height: 1; min-height: 58px;
+  font-size: 58px; line-height: 1.05; min-height: 58px;
   color: var(--phos);
   text-shadow: 0 0 18px var(--phos-dim), 0 0 50px rgba(70,255,200,0.15);
   transition: opacity 0.2s ease;

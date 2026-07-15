@@ -103,6 +103,7 @@
   const chord = new window.Chord.ChordReadout(chordEl, impliedEl);
   const mic = window.createMicInput();
   const micOut = { pcEnergy: new Float32Array(12), chroma: new Float32Array(12), level: 0 };
+  let lastMicChordName = null;   // last name rendered into chordEl by the mic path
 
   // --- key estimator (drives note/chord spelling in both modes) ------------
   const keyEst = window.KeySpelling.createKeyEstimator();
@@ -200,7 +201,7 @@
     // clear any lingering visual/readout state from the previous mode
     chordEl.textContent = '';
     impliedEl.textContent = ''; impliedEl.style.opacity = '0';
-    chord.last = null; chord.lastImplied = null;
+    chord.last = null; chord.lastImplied = null; lastMicChordName = null;
     wheelSlots.forEach((s) => s.classList.remove('lit'));
     keyEst.reset(); estimatedKey = null;
 
@@ -292,8 +293,12 @@
       refreshLitFromEnergy(micOut.pcEnergy);
       // stabilized (flicker-free) chord name; stabilizer ran inside analyse()
       const name = mic.estimateStableChordName();
-      if (name !== chordEl.textContent) {
-        chordEl.innerHTML = window.KeySpelling.accidentalHTML(name || '');
+      // Track the last name rather than read back textContent: the rendered HTML
+      // carries accidental spans and line breaks, so it never compares equal to
+      // the plain name and the readout would rebuild every frame.
+      if (name !== lastMicChordName) {
+        lastMicChordName = name;
+        chordEl.innerHTML = window.KeySpelling.readoutHTML(name || '');
         chordEl.style.opacity = name ? '1' : '0';
       }
     } else {

@@ -116,6 +116,43 @@ function accidentalHTML(text) {
     (_, letter, marks) => `${letter}<span class="acc">${marks}</span>`);
 }
 
+// Longest readout line before it wraps, in characters. VT323 is monospace, so
+// character count tracks rendered width closely (~23px per character at the
+// readout's 58px) even where accidentals are styled smaller. 16 keeps a line
+// under ~370px, about a quarter of a 1440px viewport; the untamed worst case
+// ("Cdim7 / Ebdim7 / Gbdim7 / Adim7", 31 chars) ran ~700px straight across the
+// wheel. Two typical names still share a line.
+const MAX_READOUT_CHARS = 16;
+
+// Break a chord readout into lines of at most maxChars, splitting only at the
+// " / " between alias names and keeping each slash at the END of its line (so a
+// wrapped line reads as continuing). Names are never split internally, so a
+// single name longer than maxChars stays on its own line. Returns an array of
+// lines; a readout with no aliases comes back as one line.
+function wrapReadoutLines(text, maxChars = MAX_READOUT_CHARS) {
+  const s = String(text);
+  if (s.length <= maxChars || !s.includes('/')) return [s];
+
+  const names = s.split(' / ');
+  const lines = [];
+  let line = '';
+  for (let i = 0; i < names.length; i++) {
+    const isLast = i === names.length - 1;
+    const piece = names[i] + (isLast ? '' : ' /');
+    if (!line) line = piece;
+    else if (`${line} ${piece}`.length <= maxChars) line += ` ${piece}`;
+    else { lines.push(line); line = piece; }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+// A chord readout as display HTML: accidentals styled, and long alias lists
+// broken across lines after the slash.
+function readoutHTML(text, maxChars = MAX_READOUT_CHARS) {
+  return wrapReadoutLines(text, maxChars).map(accidentalHTML).join('<br>');
+}
+
 // Krumhansl-Schmuckler key profiles (major, minor), rotated so index 0 = tonic.
 const KS_MAJOR = [6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88];
 const KS_MINOR = [6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
@@ -193,8 +230,9 @@ function createKeyEstimator() {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { spell, DEFAULT_SPELLING, tableForKey, buildMajorTable, createKeyEstimator, accidentalHTML };
+  module.exports = { spell, DEFAULT_SPELLING, tableForKey, buildMajorTable, createKeyEstimator,
+    accidentalHTML, wrapReadoutLines, readoutHTML, MAX_READOUT_CHARS };
 }
 if (typeof window !== 'undefined') {
-  window.KeySpelling = { spell, DEFAULT_SPELLING, createKeyEstimator, accidentalHTML };
+  window.KeySpelling = { spell, DEFAULT_SPELLING, createKeyEstimator, accidentalHTML, readoutHTML };
 }

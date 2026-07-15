@@ -197,4 +197,66 @@ test('accidentalHTML escapes HTML metacharacters (defensive)', () => {
   assert.strictEqual(accidentalHTML('<b>'), '&lt;b&gt;');
 });
 
+// --- readout wrapping: long alias lists break onto more lines ----------------
+
+const { wrapReadoutLines, readoutHTML, MAX_READOUT_CHARS } = require('./key-spelling.js');
+
+test('a short readout stays on one line', () => {
+  assert.deepStrictEqual(wrapReadoutLines('C'), ['C']);
+  assert.deepStrictEqual(wrapReadoutLines('C6 / Am7'), ['C6 / Am7']);
+});
+
+test('a four-root dim7 wraps, and every break lands AFTER a slash', () => {
+  // 31 chars - the worst real case, and the reason this exists.
+  const lines = wrapReadoutLines('Cdim7 / Ebdim7 / Gbdim7 / Adim7');
+  assert.ok(lines.length > 1, `expected a wrap, got ${JSON.stringify(lines)}`);
+  // every line but the last ends with the slash it broke at
+  for (const line of lines.slice(0, -1)) {
+    assert.ok(line.endsWith('/'), `line must end with its slash: "${line}"`);
+  }
+  assert.ok(!lines[lines.length - 1].endsWith('/'), 'last line must not dangle a slash');
+  // no line starts with a slash - that is the break-BEFORE mistake
+  for (const line of lines) assert.ok(!line.startsWith('/'), `line starts with a slash: "${line}"`);
+});
+
+test('wrapping preserves the names and their order exactly', () => {
+  const text = 'C#dim7 / Edim7 / Gdim7 / Bbdim7';
+  const rejoined = wrapReadoutLines(text).join(' ').replace(/\s+/g, ' ');
+  assert.strictEqual(rejoined, text, 'wrapped lines must rejoin to the original readout');
+});
+
+test('every line stays within the character budget', () => {
+  for (const text of [
+    'Cdim7 / Ebdim7 / Gbdim7 / Adim7',
+    'C#dim7 / Edim7 / Gdim7 / Bbdim7',
+    'Caug / Eaug / Abaug',
+    'Bø7 / Dm6',
+  ]) {
+    for (const line of wrapReadoutLines(text)) {
+      assert.ok(line.length <= MAX_READOUT_CHARS,
+        `"${line}" is ${line.length} chars, over the ${MAX_READOUT_CHARS} budget (from "${text}")`);
+    }
+  }
+});
+
+test('a single name longer than the budget is never split mid-name', () => {
+  // No real chord name is this long, but splitting one would be worse than
+  // overflowing: "Cdi / m7" is not a chord.
+  const lines = wrapReadoutLines('Cmaj7#11b13sus4add9', 5);
+  assert.deepStrictEqual(lines, ['Cmaj7#11b13sus4add9']);
+});
+
+test('readoutHTML joins the lines with <br> and still styles accidentals', () => {
+  const html = readoutHTML('Cdim7 / Ebdim7 / Gbdim7 / Adim7');
+  assert.ok(html.includes('<br>'), `expected a line break: ${html}`);
+  assert.ok(html.includes('<span class="acc">b</span>'), `expected styled accidentals: ${html}`);
+  // the slash before a break stays on the line it belongs to
+  assert.ok(html.includes('/<br>'), `break must follow the slash: ${html}`);
+  assert.ok(!html.includes('<br>/'), `break must not precede a slash: ${html}`);
+});
+
+test('readoutHTML leaves a short readout unbroken', () => {
+  assert.strictEqual(readoutHTML('C6 / Am7'), 'C6 / Am7');
+});
+
 console.log(`\n${passed} passed`);
