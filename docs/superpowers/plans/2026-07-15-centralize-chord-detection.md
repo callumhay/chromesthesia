@@ -257,6 +257,26 @@ git commit -m "refactor: chord.js reads the shared chord vocabulary"
 
 ## Task 3: `nameFromPitchClasses` engine entry point
 
+**Carried forward from the Task 2 review — collapse the aliases here.** Task 2
+left `QUALITIES` and `IMPLIED` as two names pointing at the SAME
+`CHORD_QUALITIES` array (that kept Task 2's diff to a genuine no-op). But two
+names for one array is now a fiction: a reader reasonably assumes they differ
+(they did, before), and must check to learn they don't. Since this task rewrites
+the engine's entry point anyway, fold both into a single `CHORD_QUALITIES`
+reference. There are only 4 call sites (chord.js:64, 105, 106, 124). Also drop
+`QUALITIES` from `module.exports` — nothing imports it (no test, no module), and
+CLAUDE.md is explicit about not keeping unused surface. Keep the regression guard:
+the existing chord tests must still pass unchanged.
+
+**Open question for the plan owner (NOT this task's job — do not act on it):**
+`min` is live in exactly ONE row (`'7'`, min 3 > required.length 2, which blocks a
+bare root+b7 from naming a dominant). In the other 12 rows `min <= required.length`
+so `present < q.min` can never fire — the field is dead weight there. The honest
+encoding would drop the column and give `'7'` its real musical constraint ("root +
+b7, and at least one of the 3rd or 5th"). That is a behaviour-shaped change and
+Task 6 (mic fuzzy matching) may want `min` for genuine reasons, so it is deferred
+— but it should be settled before more consumers bind to the column.
+
 **Files:**
 - Modify: `web/js/chord.js` (add `nameFromPitchClasses`; make `nameFromMidiNotes` a wrapper; export it)
 - Test: `web/js/chord.test.js` (add pc-set-entry tests)
