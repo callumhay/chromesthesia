@@ -48,6 +48,10 @@ const MIC_QUALITIES = (typeof require !== 'undefined')
 if (!MIC_QUALITIES) throw new Error('mic-input.js: chord-qualities.js must load first');
 if (!CHORD || !CHORD.nameFromPitchClasses) throw new Error('mic-input.js: chord.js must load first');
 
+// The old -70 dB spectral peak threshold, in linear magnitude. A bin must clear
+// this to count as a real partial (both for the chroma pick and the bass hunt).
+const PEAK_FLOOR_MAG = 3.2e-4;
+
 // Confidence gate + asymmetric hold hysteresis over the fuzzy per-frame chord
 // estimate, so the mic readout does not flicker. getSettings() returns live
 // { holdMs, minConfidence } so debug-panel changes take effect immediately.
@@ -383,10 +387,9 @@ function createMicInput() {
       // a kick's noise floor) claim the bass. Same peak test + floor the chroma
       // peak-pick below uses; no f < 2200 bound here (that is an upper limit for
       // the chroma pick, meaningless when hunting the LOWEST partial).
-      if (bassPcA < 0 && m > 3.2e-4 && m > mag[i - 1] && m >= mag[i + 1]) bassPcA = pc;
+      if (bassPcA < 0 && m > PEAK_FLOOR_MAG && m > mag[i - 1] && m >= mag[i + 1]) bassPcA = pc;
 
-      // 3.2e-4 is the old -70 dB peak threshold in linear magnitude
-      if (f < 2200 && m > mag[i - 1] && m >= mag[i + 1] && m > 3.2e-4) {
+      if (f < 2200 && m > mag[i - 1] && m >= mag[i + 1] && m > PEAK_FLOOR_MAG) {
         const cpc = Math.round(frac * 12) % 12;
         chromaRaw[cpc] += Math.sqrt(m) * (1 - 0.35 * o);
       }
