@@ -11,12 +11,11 @@ test('has all 13 chord qualities', () => {
   assert.strictEqual(CHORD_QUALITIES.length, 13);
 });
 
-test('every entry has name, ivs, required, min', () => {
+test('every entry has name, ivs, required', () => {
   for (const q of CHORD_QUALITIES) {
     assert.ok(typeof q.name === 'string', `name missing: ${JSON.stringify(q)}`);
     assert.ok(Array.isArray(q.ivs) && q.ivs.length >= 3, `ivs bad: ${q.name}`);
     assert.ok(Array.isArray(q.required), `required missing: ${q.name}`);
-    assert.ok(typeof q.min === 'number', `min missing: ${q.name}`);
     assert.strictEqual(q.ivs[0], 0, `ivs must start at root 0: ${q.name}`);
   }
 });
@@ -54,13 +53,15 @@ test('the shared vocabulary is frozen (two modules share it)', () => {
 
 // Structural invariant rather than a row-by-row restatement of the table: this
 // catches a typo in any row (and any row added later) without duplicating the data.
-test('every required interval is one of the quality own tones, and min is reachable', () => {
+test('every required/oneOf interval is one of the quality own tones', () => {
   for (const q of CHORD_QUALITIES) {
     for (const iv of q.required) {
       assert.ok(q.ivs.includes(iv), `${q.name}: required ${iv} not in ivs ${q.ivs}`);
     }
     assert.ok(q.required.includes(0), `${q.name}: root must be required`);
-    assert.ok(q.min <= q.ivs.length, `${q.name}: min ${q.min} exceeds ${q.ivs.length} tones`);
+    for (const iv of (q.oneOf || [])) {
+      assert.ok(q.ivs.includes(iv), `${q.name}: oneOf ${iv} not in ivs ${q.ivs}`);
+    }
   }
 });
 

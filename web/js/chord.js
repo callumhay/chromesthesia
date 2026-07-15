@@ -27,8 +27,7 @@ const CQ = (typeof require !== 'undefined')
 // Hard dependency: chord-qualities.js must load BEFORE this file (see index.html
 // script order). Assert rather than dying later on a confusing null-property read.
 if (!CQ || !CQ.CHORD_QUALITIES) throw new Error('chord.js: chord-qualities.js must load first');
-const QUALITIES = CQ.CHORD_QUALITIES;   // exact-match reads name + ivs
-const IMPLIED = CQ.CHORD_QUALITIES;     // implied-match reads name + ivs + required + min
+const CHORD_QUALITIES = CQ.CHORD_QUALITIES;
 
 // Unique pitch-class set (0..11) from a list of MIDI note numbers. Also returns
 // the pitch classes ordered by the lowest MIDI note at which each appears, so
@@ -61,7 +60,7 @@ function exactMatch(heldSet, root, ivs) {
 function chordNames(heldSet, bassPc, estimatedKey) {
   const matches = [];
   for (let root = 0; root < 12; root++) {
-    for (const q of QUALITIES) {
+    for (const q of CHORD_QUALITIES) {
       if (exactMatch(heldSet, root, q.ivs)) {
         matches.push({ root, name: KS.spell(root, estimatedKey) + q.name });
       }
@@ -83,13 +82,12 @@ function chordName(heldSet) {
 
 // --- implied chords (supplementary) ---------------------------------------
 // When the held notes are NOT an exact chord but strongly imply one, name it.
-// Each quality lists the intervals that MUST be present for it to be implied -
-// the root (0) plus the identity-defining tone(s) - and a coverage minimum
-// (how many of the quality's tones must sound). Following 4-part-harmony rules
-// with mild relaxation: a triad needs the root + its identity tone (the 3rd,
-// or the altered 5th for dim/aug); a 7th chord needs root + 3rd + 7th and 3 of
-// its 4 tones. If more than one quality is implied for the same root, or the
-// same coverage is reached by different roots, it is ambiguous -> no suggestion.
+// Each quality gates on two fields: `required` - the identity tones that must ALL
+// sound (the root plus what defines the quality: the 3rd for maj/min, the altered
+// 5th for dim/aug, the 7th for a dominant) - and the optional `oneOf`, at least
+// one of which must sound. No held note may fall outside the quality's tones.
+// If more than one quality is implied for the same root, or the same coverage is
+// reached by different roots, it is ambiguous -> no suggestion.
 
 // Name the chord implied by the held pitch classes, or null. Returns null when
 // the notes already form an EXACT chord (that is the main readout's job) and
@@ -102,13 +100,15 @@ function impliedChord(midiNotes, estimatedKey) {
   const lowestPc = order[0];
   const candidates = [];
   for (let root = 0; root < 12; root++) {
-    for (let qi = 0; qi < IMPLIED.length; qi++) {
-      const q = IMPLIED[qi];
+    for (let qi = 0; qi < CHORD_QUALITIES.length; qi++) {
+      const q = CHORD_QUALITIES[qi];
       // every required (identity) tone must be present
       if (!q.required.every((iv) => set.has((root + iv) % 12))) continue;
       // count how many of the quality's tones are held (coverage)
       const present = q.ivs.filter((iv) => set.has((root + iv) % 12)).length;
-      if (present < q.min) continue;
+      // at least one of these tones must sound (only the dominant '7' needs this:
+      // root + b7 alone is too bare to name a dominant - it wants the 3rd or 5th)
+      if (q.oneOf && !q.oneOf.some((iv) => set.has((root + iv) % 12))) continue;
       // no held note may fall outside the chord's tones (else it's a different
       // harmony, not this chord implied)
       let allInside = true;
@@ -121,7 +121,7 @@ function impliedChord(midiNotes, estimatedKey) {
   }
   if (candidates.length === 0) return null;
 
-  // tie-break: prefer simpler quality (earlier in IMPLIED = smaller/commoner),
+  // tie-break: prefer simpler quality (earlier in CHORD_QUALITIES = smaller/commoner),
   // then the candidate rooted on the lowest held note, then more tones present.
   candidates.sort((a, b) =>
     a.size - b.size || a.qi - b.qi ||
@@ -138,17 +138,27 @@ function impliedChord(midiNotes, estimatedKey) {
   return candidates[0].name;
 }
 
-// The public readout function: exact held MIDI notes -> display string.
-function nameFromMidiNotes(midiNotes, estimatedKey) {
-  const { set, order } = pitchClasses(midiNotes);
-  if (set.size === 0) return '';
+// Name a pitch-class SET (0 = C) -> display string. bassPc: the bass pitch class
+// (may be null); orderedPcs: pitch classes ordered bass-first for the note-name
+// fallback (defaults to numeric order when omitted). Shared by the MIDI readout
+// and the mic detector so both get identical aliasing + spelling.
+function nameFromPitchClasses(pcSet, bassPc, estimatedKey, orderedPcs) {
+  if (pcSet.size === 0) return '';
   // exact chord(s): show every valid name (aliases), bass-note interpretation
   // first, joined with " / " (C E G A -> "C6 / Am7")
-  const names = chordNames(set, order[0], estimatedKey);
+  const names = chordNames(pcSet, bassPc, estimatedKey);
   if (names.length) return names.join(' / ');
-  // not a recognized chord: show the held note names (deduped by pitch class,
-  // ordered by pitch)
+  // not a recognized chord: show the note names
+  const order = orderedPcs || [...pcSet].sort((a, b) => a - b);
   return order.map((pc) => KS.spell(pc, estimatedKey)).join(' ');
+}
+
+// The MIDI readout: exact held MIDI notes -> display string. Thin wrapper that
+// derives the pitch-class set + bass + pitch-order from the notes, then names it
+// via the shared engine.
+function nameFromMidiNotes(midiNotes, estimatedKey) {
+  const { set, order } = pitchClasses(midiNotes);
+  return nameFromPitchClasses(set, order[0], estimatedKey, order);
 }
 
 // Thin DOM binding: set the readout text from the current held notes. No
@@ -186,9 +196,10 @@ class ChordReadout {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { ChordReadout, nameFromMidiNotes, impliedChord, chordName, QUALITIES };
+  module.exports = { ChordReadout, nameFromMidiNotes, nameFromPitchClasses, impliedChord, chordName };
 }
 if (typeof window !== 'undefined') {
   window.ChordReadout = ChordReadout;
   window.nameFromMidiNotes = nameFromMidiNotes;
+  window.nameFromPitchClasses = nameFromPitchClasses;
 }

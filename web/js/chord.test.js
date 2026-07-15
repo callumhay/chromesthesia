@@ -96,4 +96,41 @@ test('loose notes respell to flats by default (A# -> Bb)', () => {
   assert.strictEqual(nameFromMidiNotes([58, 60]), 'Bb C');
 });
 
+// --- pitch-class-set entry point (shared by MIDI + mic) -------------------
+const { nameFromPitchClasses } = require('./chord.js');
+
+test('nameFromPitchClasses matches nameFromMidiNotes for a chord', () => {
+  // C E G = C major; pcSet {0,4,7}, bass 0 (0=C convention)
+  assert.strictEqual(nameFromPitchClasses(new Set([0, 4, 7]), 0, null), 'C');
+});
+
+test('nameFromPitchClasses shows slash aliases (C E G A -> C6 / Am7)', () => {
+  assert.strictEqual(nameFromPitchClasses(new Set([0, 4, 7, 9]), 0, null), 'C6 / Am7');
+});
+
+test('nameFromPitchClasses half-diminished (B D F A -> Bø7 / Dm6), bass B', () => {
+  const r = nameFromPitchClasses(new Set([11, 2, 5, 9]), 11, null);
+  assert.ok(r.startsWith('Bø7'), `expected Bø7 first, got "${r}"`);
+});
+
+test('nameFromPitchClasses of an unknown set returns the spelled note names', () => {
+  // C + F# (0,6) is not a chord -> note names in pc order (bass first)
+  assert.strictEqual(nameFromPitchClasses(new Set([0, 6]), 0, null), 'C Gb');
+});
+
+test('nameFromPitchClasses: orderedPcs drives the note-name fallback order', () => {
+  // Same set + bass, different explicit order -> different output. This pins the
+  // 4th param, which exists so the MIDI path can preserve PITCH order (a pc set
+  // cannot express it). Without this, ignoring orderedPcs entirely still passes.
+  assert.strictEqual(nameFromPitchClasses(new Set([0, 6]), 6, null, [6, 0]), 'Gb C');
+  assert.strictEqual(nameFromPitchClasses(new Set([0, 6]), 6, null, [0, 6]), 'C Gb');
+});
+
+test('nameFromPitchClasses: bassPc drives the alias ordering', () => {
+  // Same pc set, different bass -> the bass-rooted reading leads. This is exactly
+  // what mic mode will exercise when it passes its own detected bass.
+  assert.strictEqual(nameFromPitchClasses(new Set([0, 4, 7, 9]), 0, null), 'C6 / Am7');
+  assert.strictEqual(nameFromPitchClasses(new Set([0, 4, 7, 9]), 9, null), 'Am7 / C6');
+});
+
 console.log(`\n${passed} tests passed.`);
