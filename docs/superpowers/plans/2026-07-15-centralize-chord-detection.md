@@ -64,7 +64,10 @@ test('includes the previously-mic-missing chords', () => {
   }
 });
 
-test('no two qualities share the same interval set', () => {
+// NOTE: this catches two rows with the IDENTICAL interval list. It is NOT a
+// pitch-class-set uniqueness guarantee - different roots can share a pc set by
+// design (C6 == Am7, Bø7 == Dm6); that aliasing is a feature, surfaced as slashes.
+test('no two qualities share the same interval list', () => {
   const seen = new Set();
   for (const q of CHORD_QUALITIES) {
     const key = q.ivs.join(',');
@@ -77,6 +80,12 @@ test('half-diminished and diminished-7 intervals are correct', () => {
   const byName = Object.fromEntries(CHORD_QUALITIES.map((q) => [q.name, q.ivs]));
   assert.deepStrictEqual(byName['ø7'], [0, 3, 6, 10]);
   assert.deepStrictEqual(byName['dim7'], [0, 3, 6, 9]);
+});
+
+test('the shared vocabulary is frozen (two modules share it)', () => {
+  assert.ok(Object.isFrozen(CHORD_QUALITIES), 'array not frozen');
+  assert.ok(Object.isFrozen(CHORD_QUALITIES[0]), 'rows not frozen');
+  assert.ok(Object.isFrozen(CHORD_QUALITIES[0].ivs), 'ivs not frozen');
 });
 
 console.log(`\n${passed} passed`);
@@ -124,6 +133,11 @@ const CHORD_QUALITIES = [
   { name: 'm6',   ivs: [0, 3, 7, 9],  required: [0, 3, 9],    min: 3 },
 ];
 
+// Two modules now share this one array; freeze it (and the rows) so neither can
+// mutate the vocabulary out from under the other.
+CHORD_QUALITIES.forEach((q) => { Object.freeze(q.ivs); Object.freeze(q.required); Object.freeze(q); });
+Object.freeze(CHORD_QUALITIES);
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { CHORD_QUALITIES };
 }
@@ -135,7 +149,7 @@ if (typeof window !== 'undefined') {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `node web/js/chord-qualities.test.js`
-Expected: PASS — `5 passed`.
+Expected: PASS — `6 passed`.
 
 - [ ] **Step 5: Commit**
 
@@ -162,6 +176,9 @@ After the existing `KS` import (around line 22), add:
 const CQ = (typeof require !== 'undefined')
   ? require('./chord-qualities.js')
   : (typeof window !== 'undefined' ? window.ChordQualities : null);
+// Hard dependency: chord-qualities.js must load BEFORE this file (see index.html
+// script order). Assert rather than dying later on a confusing null-property read.
+if (!CQ || !CQ.CHORD_QUALITIES) throw new Error('chord.js: chord-qualities.js must load first');
 const QUALITIES = CQ.CHORD_QUALITIES;   // exact-match reads name + ivs
 const IMPLIED = CQ.CHORD_QUALITIES;     // implied-match reads name + ivs + required + min
 ```
@@ -318,6 +335,15 @@ dim7 is symmetric — `chordNames` already emits all 4 enharmonic names. This ta
 sets which comes FIRST: the key's leading tone (tonic − 1) if it is one of the 4
 roots, otherwise the bass. Spelled per the key.
 
+**`chordName`'s contract (intentional, do not "fix"):** `chordName(heldSet)` at
+chord.js:89-92 calls `chordNames(heldSet)` with NEITHER `bassPc` NOR
+`estimatedKey`. Under the new body that means `preferredRoot === undefined`
+(matches no root) and the `estimatedKey` guard short-circuits, so the sort
+degrades to root-ascending — exactly today's behaviour. That is fine and
+deliberate: `chordName` is only a yes/no "is this an exact chord" guard for
+`impliedChord`; its returned string is never displayed. Do not add arguments to
+it.
+
 - [ ] **Step 1: Write the failing test (append to `web/js/chord.test.js`)**
 
 ```javascript
@@ -431,16 +457,36 @@ Near the chroma state (around line 116-117), add:
 - [ ] **Step 2: Capture the bass pc in `foldBand`**
 
 `foldBand` (around line 361) already computes `pc` and iterates bins in ascending
-frequency. The FIRST bin (lowest freq) whose magnitude clears a floor sets the
-bass pc. Since `foldBand` runs per band and band 0 is the low band, only set
+frequency. The lowest-frequency **local spectral peak** above the floor sets the
+bass pc — a real partial, not the first bin of broadband rumble. Only set
 `bassPcA` if not yet set this frame. Inside the `for` loop, after
 `out.pcEnergy[pc] += m;`, add:
 
 ```javascript
-      // bass = lowest-frequency pitch class carrying real energy (bins are walked
-      // low->high). 3.2e-4 ~ -70 dB, the same floor the chroma peak-pick uses.
-      if (bassPcA < 0 && m > 3.2e-4) bassPcA = pc;
+      // Bass = the lowest-frequency pitch class carrying a real partial. Bins are
+      // walked low->high, so the first hit wins. This must be a LOCAL PEAK, not
+      // merely above the floor: a bare threshold would let broadband rumble (HVAC,
+      // a kick's noise floor) claim the bass. Same peak test + floor the chroma
+      // peak-pick below uses; no f < 2200 bound here (that is an upper limit for
+      // the chroma pick, meaningless when hunting the LOWEST partial).
+      if (bassPcA < 0 && m > 3.2e-4 && m > mag[i - 1] && m >= mag[i + 1]) bassPcA = pc;
 ```
+
+**Note the band-order dependence.** `analyse` calls
+`foldBand(bands[0], out) + foldBand(bands[1], out)` — band 0 is the low band and
+is evaluated first, so it gets first claim on the bass. That relies on JS
+left-to-right evaluation of the `+`. Add a comment at the top of `foldBand`
+recording it:
+
+```javascript
+  // NOTE: bassPcA capture below assumes foldBand is called in ASCENDING band
+  // order (low band first), so the lowest-frequency partial wins.
+```
+
+Caveat to be aware of (not fixed here): `makeupGain` scales magnitudes up to 10x
+before the fold, so this absolute floor is effectively lower on quiet input and
+the bass pc gets noisier. The existing chroma peak-pick has the same property, so
+this is not a regression — and Task 6's chord-tone guard is the real safety net.
 
 Reset it at the start of `analyse` where the per-frame accumulators are cleared.
 Find `out.pcEnergy.fill(0);` / `chromaRaw.fill(0);` in `analyse` (around line 466)
@@ -476,6 +522,12 @@ Mic keeps its fuzzy scoring but stops naming. It converts the detected chord to 
 0=C pitch-class set + bass pc and calls `chord.js`'s engine — so mic gains all 13
 chords, slash aliases, and dim7 root handling.
 
+**Comment correction (deliberate — do not restore the old wording):** the current
+comment at mic-input.js:505-506 claims detection "biases toward the bassier root."
+It does not. The `k === 0 ? 1.15 : 1` weight biases toward the chord's OWN root
+tone, not the bass. The replacement comment below says "biased toward the root",
+which is accurate. Keep the new wording.
+
 - [ ] **Step 1: Import the engine + vocabulary at the top of `mic-input.js`**
 
 Alongside the existing `KEY_SPELLING` import near the top of the file, add:
@@ -486,7 +538,10 @@ const CHORD = (typeof require !== 'undefined')
   : (typeof window !== 'undefined' ? window : null);
 const CHORD_Q = (typeof require !== 'undefined')
   ? require('./chord-qualities.js').CHORD_QUALITIES
-  : (typeof window !== 'undefined' ? window.ChordQualities.CHORD_QUALITIES : null);
+  : (typeof window !== 'undefined' && window.ChordQualities ? window.ChordQualities.CHORD_QUALITIES : null);
+// Hard dependencies: chord-qualities.js and chord.js must load BEFORE this file.
+if (!CHORD_Q) throw new Error('mic-input.js: chord-qualities.js must load first');
+if (!CHORD || !CHORD.nameFromPitchClasses) throw new Error('mic-input.js: chord.js must load first');
 ```
 
 (In the browser `chord.js` puts `nameFromPitchClasses` on `window`, so
@@ -534,8 +589,17 @@ Replace the `detectChord` function (around lines 507-540) with:
 
     // Convert the detected chord to a 0=C pitch-class set + bass pc, then name it
     // through the shared engine. best.root and bassPcA are 0=A; add 9 for 0=C.
+    //
+    // The frame bass (bassPcA) is the lowest strong pitch class in the WHOLE
+    // spectrum - a bass guitar, a kick's rumble, anything down there - so it is
+    // not necessarily one of this chord's tones. Only trust it when it IS a chord
+    // tone; otherwise a non-chord bass would silently degrade the alias ordering
+    // to root-ascending and, worse, make the dim7 bass fallback prefer a root that
+    // is not in the chord (arbitrary name first). Fall back to the detected root.
     const pcSetC = new Set(best.q.ivs.map((iv) => ((best.root + iv) % 12 + 9) % 12));
-    const bassC = bassPcA >= 0 ? (bassPcA + 9) % 12 : ((best.root + 9) % 12);
+    const rootC = (best.root + 9) % 12;
+    const bassCandidate = bassPcA >= 0 ? (bassPcA + 9) % 12 : -1;
+    const bassC = pcSetC.has(bassCandidate) ? bassCandidate : rootC;
     const name = CHORD.nameFromPitchClasses(pcSetC, bassC, getEstimatedKey());
     return { name, conf: frac };
   }
@@ -552,19 +616,102 @@ The `analyse` call is `stabilizer.update(now, det ? det.name : null, det ? det.c
 `grep -n "\.pcs\|det\.root\|detectChord" web/js/mic-input.js` — the only uses are
 the definition and the analyse call.
 
-- [ ] **Step 5: Verify load + no stray references**
+- [ ] **Step 5: Expose the detector + chroma for testing**
 
-Run: `node -e "require('./web/js/chord-qualities.js'); require('./web/js/key-spelling.js'); require('./web/js/chord.js'); require('./web/js/mic-input.js'); console.log('all load')"`
-Expected: prints `all load`.
+The 0=A -> 0=C conversion above is the single most bug-prone line in this refactor
+and is currently untestable (detectChord is private and needs a live FFT). Expose
+it, plus a way to inject a chroma, so the conversion can be tested headlessly.
+
+Add to the object returned by `createMicInput`:
+
+```javascript
+    // test seam: drive detectChord from a synthetic chroma (no live FFT needed)
+    _setChromaForTest: (arr) => { for (let i = 0; i < 12; i++) chroma[i] = arr[i]; },
+    _setBassPcForTest: (pcA) => { bassPcA = pcA; },
+    _detectChordForTest: () => detectChord(),
+```
+
+Also reset `chromaAgc` reachable for the test (it gates detection): the AGC line
+`if (total < 0.15 * chromaAgc || chromaAgc < 1e-3) return null;` means a synthetic
+chroma must be fed a couple of times, or `chromaAgc` seeded. The test below feeds
+the chroma twice, which is enough for `chromaAgc` to settle above the floor.
+
+- [ ] **Step 6: Write the conversion test**
+
+Create `web/js/mic-chord-naming.test.js`:
+
+```javascript
+// Tests that the mic detector names chords through the SHARED engine, and that
+// its 0=A -> 0=C pitch-class conversion is right. Runs on plain Node:
+//   node web/js/mic-chord-naming.test.js
+'use strict';
+const assert = require('assert');
+const { createMicInput } = require('./mic-input.js');
+
+let passed = 0;
+function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
+
+// chroma index 0 = A. Build one with energy on the given 0=A pitch classes.
+function chromaFor(pcsA) {
+  const c = new Array(12).fill(0.001);
+  for (const pc of pcsA) c[pc] = 1.0;
+  return c;
+}
+
+test('mic names a C major triad as "C" (0=A -> 0=C conversion)', () => {
+  const mic = createMicInput();
+  // C major = C E G. In 0=A: C=3, E=7, G=10.
+  const ch = chromaFor([3, 7, 10]);
+  mic._setChromaForTest(ch); mic._detectChordForTest();   // seed the AGC
+  mic._setChromaForTest(ch);
+  const det = mic._detectChordForTest();
+  assert.ok(det, 'expected a detection');
+  assert.strictEqual(det.name, 'C', `expected "C", got "${det.name}"`);
+});
+
+test('mic names a half-diminished through the shared engine (with alias)', () => {
+  const mic = createMicInput();
+  // Bø7 = B D F A. In 0=A: B=2, D=5, F=8, A=0.
+  const ch = chromaFor([2, 5, 8, 0]);
+  mic._setChromaForTest(ch); mic._detectChordForTest();
+  mic._setChromaForTest(ch);
+  const det = mic._detectChordForTest();
+  assert.ok(det, 'expected a detection');
+  // The engine emits slash aliases; ø7 must be one of the names (mic could not
+  // detect half-diminished at all before this refactor).
+  assert.ok(det.name.includes('ø7'), `expected a ø7 name, got "${det.name}"`);
+  assert.ok(det.name.includes('/'), `expected a slash alias, got "${det.name}"`);
+});
+
+test('a non-chord-tone frame bass is ignored (falls back to the detected root)', () => {
+  const mic = createMicInput();
+  const ch = chromaFor([3, 7, 10]);            // C major
+  mic._setBassPcForTest(1);                     // 0=A pc1 = A#/Bb - NOT a C-major tone
+  mic._setChromaForTest(ch); mic._detectChordForTest();
+  mic._setChromaForTest(ch); mic._setBassPcForTest(1);
+  const det = mic._detectChordForTest();
+  assert.ok(det, 'expected a detection');
+  assert.strictEqual(det.name, 'C', `non-chord bass must not change the name, got "${det.name}"`);
+});
+
+console.log(`\n${passed} passed`);
+```
+
+- [ ] **Step 7: Run the tests**
+
+Run: `node web/js/mic-chord-naming.test.js`
+Expected: PASS — `3 passed`.
+Run: `node -e "require('./web/js/chord-qualities.js'); require('./web/js/key-spelling.js'); require('./web/js/chord.js'); require('./web/js/mic-input.js'); console.log('all load')"` → `all load`.
 Run: `node web/js/mic-chord-stabilizer.test.js` (7 passed — unaffected).
 
-There is no Node test that drives `detectChord` (needs a live FFT); it is verified
-in the browser in Task 7.
+If the C-major test fails naming something else, the fuzzy scorer picked a
+different quality from the now-larger vocabulary — report it rather than forcing
+the test; that is real signal about enabling all 13 chords for mic.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add web/js/mic-input.js
+git add web/js/mic-input.js web/js/mic-chord-naming.test.js
 git commit -m "feat: mic detection delegates naming to the shared chord engine"
 ```
 
@@ -603,12 +750,18 @@ Serve the repo root and open the app. Confirm:
   dim7 with a known key shows the leading-tone root; note the chord names match
   the MIDI readout for the same notes.
 
-If you cannot drive mic, state so and rely on the load checks + a synthetic-chroma
-harness: temporarily require mic-input in Node, feed a crafted `chroma`, and call
-the (module-private) detector is not exposed — so instead assert the engine path
-directly: `nameFromPitchClasses` for the same pc-sets returns the expected names
-(already covered by Task 3/4 tests). The mic-specific part verified is that
-`detectChord` routes through it (code inspection + load check).
+The mic naming path (including the 0=A -> 0=C conversion) is covered headlessly by
+`mic-chord-naming.test.js` (Task 6), so this browser step is about the real
+end-to-end feel: that mic actually detects the new chords off live audio and the
+readout matches MIDI for the same notes. If you cannot drive a mic, say so
+plainly and rely on that test plus the load checks — do NOT claim a manual mic
+result you did not observe.
+
+**This step must actually be performed, not assumed.** `chord-qualities.js` is now
+a hard dependency of BOTH `chord.js` and `mic-input.js`: if the script tag is
+missing or out of order, both die at parse time and the app renders blank. The
+load check in Step 2 catches the Node path; only opening the page catches the
+browser script-order path.
 
 - [ ] **Step 4: Commit**
 
@@ -626,3 +779,36 @@ git commit -m "feat: load chord-qualities.js before the chord detectors"
 - **0=A vs 0=C:** the mic path converts with `+9` at the single seam in T6 (`detectChord`), consistent with the existing conversion it replaces.
 - **Mic detection method unchanged (option b):** T6 keeps the fuzzy scoring loop verbatim; only the vocabulary source and the naming call change. No behavioural gamble on mic detection.
 - **dim7 tie-break:** T4 only overrides ordering when a dim7 match exists and the key's leading tone is one of its roots; every other chord keeps bass-first ordering, so alias tests stay green.
+
+## Revisions from plan review (2026-07-15)
+
+- **[Critical] Mic frame-bass constrained to chord tones (T6).** `bassPcA` is the
+  lowest strong pc of the WHOLE spectrum and need not be a tone of the detected
+  chord. Feeding it raw to the engine would degrade alias ordering to
+  root-ascending and make the dim7 bass fallback prefer a root not in the chord.
+  Now: use it only if it is in the chord's pc set, else fall back to the detected
+  root. (Verified: a `preferredRoot` matching no root silently sorts
+  root-ascending.)
+- **[Critical] Bass capture requires a local spectral peak (T5),** not a bare
+  -70 dB floor, so broadband rumble cannot claim the bass. Dropped the chroma
+  pick's `f < 2200` bound (an upper limit, meaningless when hunting the lowest
+  partial). Documented the ascending-band-order dependence and the makeupGain
+  caveat.
+- **[Important] `chordName`'s no-args contract documented (T4)** — it passes
+  neither `bassPc` nor `estimatedKey` on purpose; the degrade to root-ascending is
+  today's behaviour and its output is a yes/no guard, never displayed.
+- **[Important] `detectChord` exposed for testing (T6)** with a synthetic-chroma
+  seam, and a new `mic-chord-naming.test.js` that actually tests the 0=A -> 0=C
+  conversion (the most bug-prone line here) plus the non-chord-bass guard. This
+  replaces the old self-contradicting "harness or inspection?" paragraph in T7.
+- **[Important] Root-bias comment correction flagged (T6)** so the implementer
+  does not restore the inaccurate "biases toward the bassier root" wording.
+- **Object.freeze on the shared vocabulary (T1)** + a freeze test — two modules
+  share one array; CLAUDE.md asks for defensive assertions on shared state.
+- **Import asserts (T2, T6)** turn a missing/out-of-order script into a named
+  error instead of a null-property mystery.
+- **T7 Step 3 must actually be performed** — `chord-qualities.js` is now a hard
+  parse-time dependency of both detectors; only opening the page catches a broken
+  script order.
+- **Minor:** the vocabulary "no duplicate ivs" test is documented as catching
+  identical interval LISTS, not pc-set uniqueness (C6==Am7 aliasing is a feature).
