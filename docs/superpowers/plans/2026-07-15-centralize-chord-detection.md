@@ -223,10 +223,33 @@ lists exactly (order matters for tie-breaks). Do NOT change the tests here.
 Also run `node web/js/chord-qualities.test.js` (6 passed) to confirm the shared
 file still loads.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Add the script tag NOW (the dependency is load-bearing as of this task)**
+
+The moment `chord.js` requires `chord-qualities.js`, the browser needs the script
+tag — otherwise `chord.js` throws at parse time and the whole app is dead. The Node
+tests CANNOT catch this: they take the `require` branch, so the `window` branch is
+never exercised. All four suites passing is NOT evidence the app works.
+
+In `web/index.html`, add `chord-qualities.js` before `chord.js`:
+
+```html
+<script src="./js/note-colours.js"></script>
+<script src="./js/key-spelling.js"></script>
+<script src="./js/chord-qualities.js"></script>
+<script src="./js/chord.js"></script>
+```
+
+Then VERIFY IN A BROWSER (not just Node) that the page loads with no errors —
+serve the repo root and open `/web/`. Confirm no `chord-qualities.js must load
+first` and no `ChordReadout is not a constructor` in the console.
+
+(This was originally deferred to Task 7. That was wrong: it left the app broken
+across five tasks. Task 7 still re-verifies the final script order.)
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add web/js/chord.js
+git add web/js/chord.js web/index.html
 git commit -m "refactor: chord.js reads the shared chord vocabulary"
 ```
 
