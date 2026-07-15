@@ -91,11 +91,10 @@ function chordNames(heldSet, bassPc, estimatedKey) {
   return matches.map((m) => m.name);
 }
 
-// Convenience: the single primary exact name, or null. Used where only a
-// yes/no "is this an exact chord" answer is needed (e.g. implied-chord guard).
-function chordName(heldSet) {
-  const names = chordNames(heldSet);
-  return names.length ? names[0] : null;
+// Do the held pitch classes exactly form a recognized chord? Spelling is
+// irrelevant to the answer, so no bass/key is passed - only the count matters.
+function isExactChord(heldSet) {
+  return chordNames(heldSet).length > 0;
 }
 
 // --- implied chords (supplementary) ---------------------------------------
@@ -113,7 +112,7 @@ function chordName(heldSet) {
 function impliedChord(midiNotes, estimatedKey) {
   const { set, order } = pitchClasses(midiNotes);
   if (set.size < 2) return null;
-  if (chordName(set)) return null;            // exact -> not "implied"
+  if (isExactChord(set)) return null;         // exact -> not "implied"
 
   const lowestPc = order[0];
   const candidates = [];
@@ -214,7 +213,7 @@ class ChordReadout {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { ChordReadout, nameFromMidiNotes, nameFromPitchClasses, impliedChord, chordName };
+  module.exports = { ChordReadout, nameFromMidiNotes, nameFromPitchClasses, impliedChord };
 }
 // One namespace object, like key-spelling.js and chord-qualities.js - consumers
 // bind THAT, never the bare globals (a `window` binding would make a load-order
