@@ -151,6 +151,25 @@ test('dim7 roots on the key leading tone (C major -> Bdim7 first)', () => {
   assert.ok(r.startsWith('Bdim7'), `expected Bdim7 first, got "${r}"`);
 });
 
+// A minor and C major (above) both happen to spell their leading tone sharp
+// already. The flat-side minors are where it went wrong: they borrow a relative
+// major with a flat signature, which spelled the raised 7th as a flat - so D
+// minor's vii°7 read "Dbdim7". A leading tone resolves UP to the tonic; Db does
+// not. These pin the keys that were broken.
+test('dim7 in D minor roots on C#, not Db', () => {
+  // C# E G Bb = pcs 1, 4, 7, 10. D minor's leading tone is C# (pc 1).
+  const dMinor = { tonic: 2, mode: 'minor' };
+  const r = nameFromPitchClasses(new Set([1, 4, 7, 10]), 4 /*bass E*/, dMinor);
+  assert.ok(r.startsWith('C#dim7'), `expected C#dim7 first, got "${r}"`);
+});
+
+test('dim7 in G minor roots on F#, not Gb', () => {
+  // F# A C Eb = pcs 6, 9, 0, 3. G minor's leading tone is F# (pc 6).
+  const gMinor = { tonic: 7, mode: 'minor' };
+  const r = nameFromPitchClasses(new Set([6, 9, 0, 3]), 0 /*bass C*/, gMinor);
+  assert.ok(r.startsWith('F#dim7'), `expected F#dim7 first, got "${r}"`);
+});
+
 test('dim7 with no key falls back to the bass (bass F -> Fdim7 first)', () => {
   const r = nameFromPitchClasses(new Set([8, 11, 2, 5]), 5 /*bass F*/, null);
   assert.ok(r.startsWith('Fdim7'), `expected Fdim7 first, got "${r}"`);

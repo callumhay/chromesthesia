@@ -56,6 +56,44 @@ test('minor keys spell via their relative major (tonic+3)', () => {
   assert.strictEqual(spell(9, { tonic: 9, mode: 'minor' }), 'A');
 });
 
+// A minor key borrows its relative major's table, which is the NATURAL minor
+// scale - it has no leading tone. The raised 7th (tonic-1) must still be spelled
+// as a raised 7th, never as a flat 2nd: D minor's is C#, and "Db" would be a note
+// that resolves DOWN to the tonic instead of up to it. Before this was fixed,
+// D/G/C#/F# minor all spelled it flat, because their relative majors carry flat
+// signatures - and the dim7 readout showed "Dbdim7" for D minor's vii°7.
+test('minor keys spell the raised 7th as a leading tone, not a flat 2nd', () => {
+  // Derived from theory rather than a hardcoded table: the leading tone takes the
+  // letter BELOW the tonic's letter, with whatever accidental reaches tonic-1.
+  const LETTERS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+  const NATURAL_PC = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+  const TONIC_LETTER = { 0:'C', 1:'C', 2:'D', 3:'E', 4:'E', 5:'F', 6:'F', 7:'G', 8:'G', 9:'A', 10:'B', 11:'B' };
+
+  for (let tonic = 0; tonic < 12; tonic++) {
+    const leadingTonePc = (tonic + 11) % 12;
+    const letter = LETTERS[(LETTERS.indexOf(TONIC_LETTER[tonic]) + 6) % 7];
+    let delta = ((leadingTonePc - NATURAL_PC[letter]) % 12 + 12) % 12;
+    if (delta > 6) delta -= 12;
+    const want = delta === 0 ? letter : letter + (delta > 0 ? '#'.repeat(delta) : 'b'.repeat(-delta));
+    // G# minor's leading tone is F##; double accidentals are a theoretical
+    // extreme this module declines to print, so it keeps the borrowed spelling.
+    if (/##|bb/.test(want)) continue;
+
+    const got = spell(leadingTonePc, { tonic, mode: 'minor' });
+    assert.strictEqual(got, want,
+      `minor tonic ${tonic}: leading tone (pc ${leadingTonePc}) spelled "${got}", want "${want}"`);
+  }
+});
+
+test('the leading-tone fix does not disturb the rest of a minor key', () => {
+  // D minor still borrows F major elsewhere: pc 10 is Bb, and the natural 7th
+  // (pc 0, C) is untouched - only the RAISED 7th (pc 1) was ever wrong.
+  const dMinor = { tonic: 2, mode: 'minor' };
+  assert.strictEqual(spell(10, dMinor), 'Bb');
+  assert.strictEqual(spell(0, dMinor), 'C');
+  assert.strictEqual(spell(1, dMinor), 'C#');
+});
+
 test('chromatic (non-diatonic) notes follow the key direction', () => {
   // pc 6 is non-diatonic in C major -> sharp side -> F#
   assert.strictEqual(spell(6, { tonic: 0, mode: 'major' }), 'F#');
