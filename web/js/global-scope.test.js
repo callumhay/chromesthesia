@@ -7,8 +7,9 @@
 // the app is dead - so parse the scripts the way the BROWSER does: concatenated,
 // in index.html order, as one unit, reporting which files collided.
 //
-// Covers lexical declarations (const/let/class) only: duplicate top-level
-// `function`s are legal and silently last-wins, so no parse error exists to catch.
+// Duplicate top-level `function`s are worse: they are LEGAL, so there is no
+// parse error at all - the later one silently wins and the app misbehaves with
+// no diagnostic. Those are checked separately, by name.
 
 'use strict';
 
@@ -54,6 +55,32 @@ function declaringScripts(srcs, name) {
   });
 }
 
+// The top-level `function` names a script contributes to the shared global scope.
+// Found by parsing, not regex: prepending `let <name>` collides with a top-level
+// function declaration of the same name (a lexical/function conflict), so the
+// same probe that finds const/class also finds functions. Candidate names come
+// from the file's own text, then every candidate is confirmed by the parser -
+// so GLSL and other string contents cannot produce a false positive.
+function topLevelFunctions(srcs) {
+  const owners = new Map();   // name -> [scripts declaring it]
+  for (const s of srcs) {
+    const source = fs.readFileSync(path.join(WEB_DIR, 'js', s), 'utf8');
+    for (const m of source.matchAll(/\bfunction\s+([A-Za-z_$][\w$]*)/g)) {
+      const name = m[1];
+      let collides = false;
+      try {
+        new vm.Script(`let ${name};\n${source}`, { filename: s });
+      } catch (err) {
+        collides = /has already been declared/.test(err.message);
+      }
+      if (!collides) continue;                 // nested/inner function, or a string
+      if (!owners.has(name)) owners.set(name, []);
+      if (!owners.get(name).includes(s)) owners.get(name).push(s);
+    }
+  }
+  return owners;
+}
+
 console.log('global-scope');
 
 test('index.html scripts parse as one shared global scope (as the browser loads them)', () => {
@@ -80,6 +107,18 @@ test('index.html scripts parse as one shared global scope (as the browser loads 
     }
     assert.fail(`index.html scripts failed to parse together: ${err.message}`);
   }
+});
+
+// Duplicate top-level functions never throw - the later definition silently
+// replaces the earlier one and the app just does the wrong thing. Nothing else
+// in the toolchain can catch that, which is why it is checked by name.
+test('no two scripts declare the same top-level function', () => {
+  const srcs = scriptsFromIndexHtml();
+  const collisions = [...topLevelFunctions(srcs).entries()]
+    .filter(([, files]) => files.length > 1)
+    .map(([name, files]) => `${name} (${files.join(', ')})`);
+  assert.deepStrictEqual(collisions, [],
+    'top-level functions declared by more than one script - the last one loaded silently wins');
 });
 
 // The collision report is the reason this test earns its keep: a bare
