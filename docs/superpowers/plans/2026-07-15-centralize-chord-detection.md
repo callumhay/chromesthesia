@@ -268,14 +268,31 @@ reference. There are only 4 call sites (chord.js:64, 105, 106, 124). Also drop
 CLAUDE.md is explicit about not keeping unused surface. Keep the regression guard:
 the existing chord tests must still pass unchanged.
 
-**Open question for the plan owner (NOT this task's job — do not act on it):**
-`min` is live in exactly ONE row (`'7'`, min 3 > required.length 2, which blocks a
-bare root+b7 from naming a dominant). In the other 12 rows `min <= required.length`
-so `present < q.min` can never fire — the field is dead weight there. The honest
-encoding would drop the column and give `'7'` its real musical constraint ("root +
-b7, and at least one of the 3rd or 5th"). That is a behaviour-shaped change and
-Task 6 (mic fuzzy matching) may want `min` for genuine reasons, so it is deferred
-— but it should be settled before more consumers bind to the column.
+**DECIDED (plan owner): drop `min`, replace with `oneOf` — do it in this task.**
+
+`min` is live in exactly ONE row: `'7'` (min 3 > required.length 2). In the other
+12 rows `min <= required.length`, so `present < q.min` can never fire — dead
+weight. What `'7'`'s `min: 3` actually encodes (verified: `C+Bb` -> null;
+`C E Bb` -> "C7"; `C G Bb` -> "C7") is **"root + b7, plus at least one of the 3rd
+or 5th"** — a musical constraint obliquely expressed as a count.
+
+Replace the `min` column with an optional `oneOf` field: intervals of which AT
+LEAST ONE must be present. Only `'7'` needs it (`oneOf: [4, 7]`); every other row
+drops the field entirely and is fully pinned by `required` alone.
+
+**Proven behaviour-preserving** across all 4096 pitch-class subsets x 12 roots x
+13 qualities = 638,976 combinations: **0 differences**. Keep the regression guard
+(15/9/16 unchanged) as the live proof.
+
+Changes:
+- `chord-qualities.js`: delete `min` from all 13 rows; add `oneOf: [4, 7]` to
+  `'7'`. Update the header to document `oneOf` and drop `min`.
+- `chord-qualities.test.js`: the invariant test's `min <= ivs.length` assertion
+  goes away; add that every `oneOf` interval (where present) is also in `ivs`.
+- `chord.js` `impliedChord`: replace the `if (present < q.min) continue;` check
+  with `if (q.oneOf && !q.oneOf.some((iv) => set.has((root + iv) % 12))) continue;`.
+  NOTE `present` is still used by the candidate tie-break sort (`b.present -
+  a.present`) — keep computing it, only the `min` GATE goes.
 
 **Files:**
 - Modify: `web/js/chord.js` (add `nameFromPitchClasses`; make `nameFromMidiNotes` a wrapper; export it)
