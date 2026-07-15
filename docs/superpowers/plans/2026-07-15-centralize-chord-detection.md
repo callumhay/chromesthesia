@@ -207,7 +207,7 @@ Expected: PASS — 15, 9, 16. If any FAIL, the vocabulary order or intervals dif
 from the originals; reconcile `chord-qualities.js` to match the original chord.js
 lists exactly (order matters for tie-breaks). Do NOT change the tests here.
 
-Also run `node web/js/chord-qualities.test.js` (5 passed) to confirm the shared
+Also run `node web/js/chord-qualities.test.js` (6 passed) to confirm the shared
 file still loads.
 
 - [ ] **Step 5: Commit**
@@ -631,10 +631,18 @@ Add to the object returned by `createMicInput`:
     _detectChordForTest: () => detectChord(),
 ```
 
-Also reset `chromaAgc` reachable for the test (it gates detection): the AGC line
-`if (total < 0.15 * chromaAgc || chromaAgc < 1e-3) return null;` means a synthetic
-chroma must be fed a couple of times, or `chromaAgc` seeded. The test below feeds
-the chroma twice, which is enough for `chromaAgc` to settle above the floor.
+No AGC seeding is needed. `detectChord` assigns
+`chromaAgc = Math.max(chromaAgc * 0.995, total, 1e-6)` **before** the gate
+`if (total < 0.15 * chromaAgc || chromaAgc < 1e-3) return null;` reads it — so on
+the very first call `chromaAgc >= total`, both gate conditions are false, and a
+synthetic chroma passes on feed 1. (Verified: feed 1 and feed 2 return identical
+results.) A single feed per test is enough.
+
+**Tradeoff, deliberate:** these three `_*ForTest` methods are public API that
+exists only for tests, which brushes CLAUDE.md's "don't add unused functions". It
+is justified here: the 0=A -> 0=C conversion is the highest-risk line in this
+refactor, it was previously untestable, and the alternative is browser-only
+"verified by inspection" — exactly the unfalsifiable claim this plan avoids.
 
 - [ ] **Step 6: Write the conversion test**
 
@@ -661,9 +669,7 @@ function chromaFor(pcsA) {
 test('mic names a C major triad as "C" (0=A -> 0=C conversion)', () => {
   const mic = createMicInput();
   // C major = C E G. In 0=A: C=3, E=7, G=10.
-  const ch = chromaFor([3, 7, 10]);
-  mic._setChromaForTest(ch); mic._detectChordForTest();   // seed the AGC
-  mic._setChromaForTest(ch);
+  mic._setChromaForTest(chromaFor([3, 7, 10]));
   const det = mic._detectChordForTest();
   assert.ok(det, 'expected a detection');
   assert.strictEqual(det.name, 'C', `expected "C", got "${det.name}"`);
@@ -672,9 +678,7 @@ test('mic names a C major triad as "C" (0=A -> 0=C conversion)', () => {
 test('mic names a half-diminished through the shared engine (with alias)', () => {
   const mic = createMicInput();
   // Bø7 = B D F A. In 0=A: B=2, D=5, F=8, A=0.
-  const ch = chromaFor([2, 5, 8, 0]);
-  mic._setChromaForTest(ch); mic._detectChordForTest();
-  mic._setChromaForTest(ch);
+  mic._setChromaForTest(chromaFor([2, 5, 8, 0]));
   const det = mic._detectChordForTest();
   assert.ok(det, 'expected a detection');
   // The engine emits slash aliases; ø7 must be one of the names (mic could not
@@ -683,12 +687,24 @@ test('mic names a half-diminished through the shared engine (with alias)', () =>
   assert.ok(det.name.includes('/'), `expected a slash alias, got "${det.name}"`);
 });
 
+// The next two pin the chord-tone bass guard from BOTH sides. Without the
+// positive case, `const bassC = rootC;` (ignoring the bass entirely) would still
+// pass the negative case - the test could not tell "guard rejected the bad bass"
+// from "bass never used".
+test('a chord-tone frame bass drives the alias ordering', () => {
+  const mic = createMicInput();
+  // C6 == Am7 = C E G A. In 0=A: C=3, E=7, G=10, A=0. Bass A -> Am7 first.
+  mic._setChromaForTest(chromaFor([3, 7, 10, 0]));
+  mic._setBassPcForTest(0);                     // 0=A pc0 = A, IS a chord tone
+  const det = mic._detectChordForTest();
+  assert.ok(det, 'expected a detection');
+  assert.ok(det.name.startsWith('Am7'), `expected Am7 first, got "${det.name}"`);
+});
+
 test('a non-chord-tone frame bass is ignored (falls back to the detected root)', () => {
   const mic = createMicInput();
-  const ch = chromaFor([3, 7, 10]);            // C major
-  mic._setBassPcForTest(1);                     // 0=A pc1 = A#/Bb - NOT a C-major tone
-  mic._setChromaForTest(ch); mic._detectChordForTest();
-  mic._setChromaForTest(ch); mic._setBassPcForTest(1);
+  mic._setChromaForTest(chromaFor([3, 7, 10]));  // C major
+  mic._setBassPcForTest(1);                      // 0=A pc1 = A#/Bb - NOT a C-major tone
   const det = mic._detectChordForTest();
   assert.ok(det, 'expected a detection');
   assert.strictEqual(det.name, 'C', `non-chord bass must not change the name, got "${det.name}"`);
@@ -700,7 +716,7 @@ console.log(`\n${passed} passed`);
 - [ ] **Step 7: Run the tests**
 
 Run: `node web/js/mic-chord-naming.test.js`
-Expected: PASS — `3 passed`.
+Expected: PASS — `4 passed`.
 Run: `node -e "require('./web/js/chord-qualities.js'); require('./web/js/key-spelling.js'); require('./web/js/chord.js'); require('./web/js/mic-input.js'); console.log('all load')"` → `all load`.
 Run: `node web/js/mic-chord-stabilizer.test.js` (7 passed — unaffected).
 
@@ -737,7 +753,7 @@ git commit -m "feat: mic detection delegates naming to the shared chord engine"
 
 - [ ] **Step 2: Full test sweep**
 
-Run: `node web/js/chord-qualities.test.js && node web/js/chord.test.js && node web/js/chord.alias.test.js && node web/js/chord.implied.test.js && node web/js/key-spelling.test.js && node web/js/mic-chord-stabilizer.test.js && node web/js/note-colours.test.js`
+Run: `node web/js/chord-qualities.test.js && node web/js/chord.test.js && node web/js/chord.alias.test.js && node web/js/chord.implied.test.js && node web/js/key-spelling.test.js && node web/js/mic-chord-stabilizer.test.js && node web/js/mic-chord-naming.test.js && node web/js/note-colours.test.js`
 Expected: all PASS.
 
 - [ ] **Step 3: Browser verification (MIDI + mic)**
@@ -812,3 +828,22 @@ git commit -m "feat: load chord-qualities.js before the chord detectors"
   script order.
 - **Minor:** the vocabulary "no duplicate ivs" test is documented as catching
   identical interval LISTS, not pc-set uniqueness (C6==Am7 aliasing is a feature).
+
+## Revisions from re-review (2026-07-15)
+
+- **Dropped the double-feed AGC ceremony (T6).** I had claimed a synthetic chroma
+  must be fed twice to settle `chromaAgc`. Traced it: `chromaAgc` is assigned
+  `Math.max(..., total, ...)` BEFORE the gate reads it, so feed 1 already passes
+  (verified — feed 1 and feed 2 return identical results). The seeding call and
+  its explanation were dead ceremony resting on a misreading; both removed.
+- **Added the positive bass-guard test (T6).** The negative test alone could not
+  distinguish "the guard rejected a non-chord bass" from "the bass is never used"
+  — `const bassC = rootC;` would pass it. The new test asserts a chord-tone bass
+  DOES reorder the aliases (C6/Am7 with bass A -> "Am7" first), pinning the guard
+  from both sides. (Verified against the real engine: A-lowest gives "Am7 / C6",
+  C-lowest gives "C6 / Am7".)
+- **Named the test-seam tradeoff (T6)** so the three `_*ForTest` methods read as a
+  deliberate choice against unfalsifiable browser-only verification, not an
+  oversight.
+- **Minor:** stale "5 passed" at T2 Step 4 -> 6; `mic-chord-naming.test.js` added
+  to T7's full sweep so it keeps running after T6.
