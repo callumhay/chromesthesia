@@ -4,8 +4,8 @@
 // WebGL visualizer (Research/waveloop.html). This is a self-contained PORT of
 // proven DSP code, NOT a redesign: the dual-resolution FFT, adaptive makeup
 // gain, six-layer DSP stack (drum cut, phon weight, gate, whiten, overtone
-// cut, peak focus), pitch-class fold, and fuzzy chord estimator are copied
-// straight across.
+// cut, peak focus), and pitch-class fold are copied straight across. The chord
+// estimator keeps waveloop's fuzzy scoring but names through chord.js.
 //
 // The one intentional difference from waveloop: the fold no longer paints the
 // Oklch per-register colour accumulators (angR/angG/angB) or the rim register
@@ -33,14 +33,11 @@
 
 // Shared chord vocabulary + naming engine, so the mic readout gets the same
 // chords, aliases, and spelling as the MIDI readout instead of its own copy.
-// Key-aware spelling now happens inside the engine, so this file no longer
-// touches the speller directly.
 const CHORD = (typeof require !== 'undefined')
   ? require('./chord.js')
   : (typeof window !== 'undefined' ? window.Chord : null);
-// Local alias. Distinct from chord.js's own `QUALITIES` alias for this same
-// array: classic scripts share one global scope, so both files using the bare
-// name would collide (see global-scope.test.js).
+// Prefixed because classic scripts share one global scope - a bare `QUALITIES`
+// would collide with chord.js (see global-scope.test.js).
 const MIC_QUALITIES = (typeof require !== 'undefined')
   ? require('./chord-qualities.js').CHORD_QUALITIES
   : (typeof window !== 'undefined' && window.ChordQualities ? window.ChordQualities.CHORD_QUALITIES : null);
@@ -381,12 +378,9 @@ function createMicInput() {
       const pc = ((Math.round(frac * 12) % 12) + 12) % 12;
       out.pcEnergy[pc] += m;
 
-      // Bass = the lowest-frequency pitch class carrying a real partial. Bins are
-      // walked low->high, so the first hit wins. This must be a LOCAL PEAK, not
-      // merely above the floor: a bare threshold would let broadband rumble (HVAC,
-      // a kick's noise floor) claim the bass. Same peak test + floor the chroma
-      // peak-pick below uses; no f < 2200 bound here (that is an upper limit for
-      // the chroma pick, meaningless when hunting the LOWEST partial).
+      // Bass = lowest-frequency pitch class with a real partial (bins walk
+      // low->high, so the first hit wins). Must be a local peak, not merely above
+      // the floor, or broadband rumble would claim the bass.
       if (bassPcA < 0 && m > PEAK_FLOOR_MAG && m > mag[i - 1] && m >= mag[i + 1]) bassPcA = pc;
 
       if (f < 2200 && m > mag[i - 1] && m >= mag[i + 1] && m > PEAK_FLOOR_MAG) {
@@ -566,7 +560,7 @@ function createMicInput() {
     dsp,
     chordSettings,
     setKeySource,             // host supplies the current estimated key for spelling
-    // test seam: drive detectChord from a synthetic chroma (no live FFT needed)
+    // test hooks: drive detectChord from a synthetic chroma (no live FFT needed)
     _setChromaForTest: (arr) => { for (let i = 0; i < 12; i++) chroma[i] = arr[i]; },
     _setBassPcForTest: (pcA) => { bassPcA = pcA; },
     _detectChordForTest: () => detectChord(),

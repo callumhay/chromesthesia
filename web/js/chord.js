@@ -59,7 +59,8 @@ function exactMatch(heldSet, root, ivs) {
 // in a key - see below), then by root ascending.
 // The same notes can name more than one chord (C6 == Am7, symmetric aug/dim7),
 // so this returns every valid (root, quality) match. Empty if not a chord.
-// bassPc: the pitch class of the lowest held note (may be null).
+// bassPc: the pitch class of the lowest held note (may be undefined - then no
+// interpretation is preferred and the names come back root-ascending).
 function chordNames(heldSet, bassPc, estimatedKey) {
   const matches = [];
   for (let root = 0; root < 12; root++) {
@@ -156,9 +157,8 @@ function impliedChord(midiNotes, estimatedKey) {
 }
 
 // Name a pitch-class SET (0 = C) -> display string. bassPc: the bass pitch class
-// (may be null); orderedPcs: pitch classes ordered bass-first for the note-name
-// fallback (defaults to numeric order when omitted). Shared by the MIDI readout
-// and the mic detector so both get identical aliasing + spelling.
+// (may be undefined); orderedPcs: pitch classes ordered bass-first for the
+// note-name fallback (defaults to numeric order when omitted).
 function nameFromPitchClasses(pcSet, bassPc, estimatedKey, orderedPcs) {
   if (pcSet.size === 0) return '';
   // exact chord(s): show every valid name (aliases), bass-note interpretation
@@ -170,9 +170,7 @@ function nameFromPitchClasses(pcSet, bassPc, estimatedKey, orderedPcs) {
   return order.map((pc) => KS.spell(pc, estimatedKey)).join(' ');
 }
 
-// The MIDI readout: exact held MIDI notes -> display string. Thin wrapper that
-// derives the pitch-class set + bass + pitch-order from the notes, then names it
-// via the shared engine.
+// The MIDI readout: exact held MIDI notes -> display string.
 function nameFromMidiNotes(midiNotes, estimatedKey) {
   const { set, order } = pitchClasses(midiNotes);
   return nameFromPitchClasses(set, order[0], estimatedKey, order);
@@ -215,9 +213,7 @@ class ChordReadout {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { ChordReadout, nameFromMidiNotes, nameFromPitchClasses, impliedChord };
 }
-// One namespace object, like key-spelling.js and chord-qualities.js - consumers
-// bind THAT, never the bare globals (a `window` binding would make a load-order
-// check meaningless: window is always truthy).
+// One namespace object, like key-spelling.js and chord-qualities.js.
 if (typeof window !== 'undefined') {
   window.Chord = { ChordReadout, nameFromMidiNotes, nameFromPitchClasses };
 }

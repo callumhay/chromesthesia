@@ -10,11 +10,12 @@
 //   oneOf    - optional: intervals of which AT LEAST ONE must be present for an
 //              implied match (currently only '7' uses it)
 //
-// Order is load-bearing: chord.js sorts implied candidates by their INDEX in this
-// list (qi), so an earlier row wins a tie - that is what makes '7', which precedes
-// maj7/m7, the default for a 3rd-less dominant. Reordering the rows would silently
-// change implied-match tie-breaks. Adding a chord = one row here; both detectors
-// pick it up.
+// Rows are ordered simplest-first, and the order is load-bearing for mic-input.js:
+// its fuzzy scorer keeps the first strict-highest scorer, so equal scores resolve
+// to the earlier row. Reordering silently changes what the mic hears (measured:
+// swapping any adjacent pair moves 15-202 of the 4095 possible chromas). It does
+// NOT affect chord.js, whose implied tie-break sorts on tone count before this
+// index, and no two same-count rows ever reach that tie.
 
 'use strict';
 
@@ -31,12 +32,9 @@ const CHORD_QUALITIES = [
   // all three (a bare root+4th/5th is an ambiguous power chord, not an implied sus)
   { name: 'sus2', ivs: [0, 2, 7],     required: [0, 2, 7] },
   { name: 'sus4', ivs: [0, 5, 7],     required: [0, 5, 7] },
-  // 7th chords: the quality note is the 7th (that is what makes it a 7th chord), so
-  // root + 7th are required. When the 3rd is also held it settles major vs minor;
-  // when the 3rd is ABSENT the plain dominant '7' is the default (it sorts before
-  // maj7/m7, so it wins the tie) - but root + b7 alone is too bare to name, so it
-  // also wants the 3rd or the 5th (oneOf). maj7 and m7 additionally require their
-  // own defining 3rd so they only appear when the colour that names them is present.
+  // 7th chords: root + the 7th define the quality. The 3rd settles major vs minor,
+  // so maj7/m7 require theirs; a 3rd-less dominant is left to plain '7'. root + b7
+  // alone is too bare to name, so oneOf wants the 3rd or the 5th too.
   { name: '7',    ivs: [0, 4, 7, 10], required: [0, 10], oneOf: [4, 7] },
   { name: 'maj7', ivs: [0, 4, 7, 11], required: [0, 4, 11] },
   { name: 'm7',   ivs: [0, 3, 7, 10], required: [0, 3, 10] },
