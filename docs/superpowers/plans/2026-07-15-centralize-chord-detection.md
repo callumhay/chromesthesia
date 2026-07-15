@@ -669,6 +669,10 @@ Replace the `detectChord` function (around lines 507-540) with:
     // tone; otherwise a non-chord bass would silently degrade the alias ordering
     // to root-ascending and, worse, make the dim7 bass fallback prefer a root that
     // is not in the chord (arbitrary name first). Fall back to the detected root.
+    //
+    // NOTE the -1 sentinel MUST be checked before converting: (-1 + 9) % 12 === 8,
+    // a perfectly valid-looking G#. Converting an unset bass would silently invent
+    // one. The `bassPcA >= 0` guard below is what prevents that.
     const pcSetC = new Set(best.q.ivs.map((iv) => ((best.root + iv) % 12 + 9) % 12));
     const rootC = (best.root + 9) % 12;
     const bassCandidate = bassPcA >= 0 ? (bassPcA + 9) % 12 : -1;
