@@ -115,6 +115,7 @@ function createMicInput() {
   // per-frame accumulators and smoothed chroma for the chord detector
   const chromaRaw = new Float32Array(12);   // 12-bin chroma, filled by the fold's peak pick
   const chroma = new Float32Array(12);      // smoothed chroma, index 0 = A
+  let bassPcA = -1;         // lowest-frequency strong pitch class this frame (0 = A); -1 = none
 
   // overtone-suppression scratch
   const peakIdx = new Int32Array(PEAK_CAP);
@@ -358,6 +359,9 @@ function createMicInput() {
   //
   // pc = round(fract(log2(f/440)) * 12) % 12 gives index 0 = A (same convention
   // as waveloop's chromaRaw peak pick).
+  //
+  // NOTE: the bassPcA capture below assumes foldBand is called in ASCENDING band
+  // order (low band first), so the lowest-frequency partial wins.
   function foldBand(b, out) {
     const { mag, hz, i0, i1 } = b;
     let total = 0;
@@ -376,6 +380,14 @@ function createMicInput() {
       // per-pitch-class energy we accumulate the bin's magnitude directly.
       const pc = ((Math.round(frac * 12) % 12) + 12) % 12;
       out.pcEnergy[pc] += m;
+
+      // Bass = the lowest-frequency pitch class carrying a real partial. Bins are
+      // walked low->high, so the first hit wins. This must be a LOCAL PEAK, not
+      // merely above the floor: a bare threshold would let broadband rumble (HVAC,
+      // a kick's noise floor) claim the bass. Same peak test + floor the chroma
+      // peak-pick below uses; no f < 2200 bound here (that is an upper limit for
+      // the chroma pick, meaningless when hunting the LOWEST partial).
+      if (bassPcA < 0 && m > 3.2e-4 && m > mag[i - 1] && m >= mag[i + 1]) bassPcA = pc;
 
       // 3.2e-4 is the old -70 dB peak threshold in linear magnitude
       if (f < 2200 && m > mag[i - 1] && m >= mag[i + 1] && m > 3.2e-4) {
@@ -465,6 +477,7 @@ function createMicInput() {
 
     out.pcEnergy.fill(0);
     chromaRaw.fill(0);
+    bassPcA = -1;
 
     let raw = 0;
     for (const b of ana.bands) raw += toMag(b.data, b.mag, b.i0, b.i1);
