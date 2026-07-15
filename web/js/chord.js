@@ -27,11 +27,8 @@ const CQ = (typeof require !== 'undefined')
 // Hard dependency: chord-qualities.js must load BEFORE this file (see index.html
 // script order). Assert rather than dying later on a confusing null-property read.
 if (!CQ || !CQ.CHORD_QUALITIES) throw new Error('chord.js: chord-qualities.js must load first');
-// Read through CQ rather than aliasing to a bare top-level name: in the browser
-// these are classic scripts sharing ONE global scope, so a second top-level
-// `const CHORD_QUALITIES` collides with chord-qualities.js's own declaration and
-// kills the whole page at parse time. Node's per-file module scope hides this,
-// so the test suite cannot catch it - keep every cross-file global namespaced.
+// Local alias, NOT a bare `const CHORD_QUALITIES`: classic scripts share one
+// global scope, so that collides with chord-qualities.js (see global-scope.test.js).
 const QUALITIES = CQ.CHORD_QUALITIES;
 
 // Unique pitch-class set (0..11) from a list of MIDI note numbers. Also returns
@@ -219,8 +216,9 @@ class ChordReadout {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { ChordReadout, nameFromMidiNotes, nameFromPitchClasses, impliedChord, chordName };
 }
+// One namespace object, like key-spelling.js and chord-qualities.js - consumers
+// bind THAT, never the bare globals (a `window` binding would make a load-order
+// check meaningless: window is always truthy).
 if (typeof window !== 'undefined') {
-  window.ChordReadout = ChordReadout;
-  window.nameFromMidiNotes = nameFromMidiNotes;
-  window.nameFromPitchClasses = nameFromPitchClasses;
+  window.Chord = { ChordReadout, nameFromMidiNotes, nameFromPitchClasses };
 }

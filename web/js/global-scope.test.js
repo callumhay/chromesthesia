@@ -1,17 +1,14 @@
 // global-scope.test.js
 //
-// The browser loads web/js/*.js as CLASSIC scripts (see index.html) - they all
-// share ONE global scope, so two files declaring the same top-level `const` is a
+// The browser loads web/js/*.js as CLASSIC scripts (see index.html): they share
+// ONE global scope, so two files declaring the same top-level name is a
 // duplicate-declaration SyntaxError that kills the entire page at parse time.
+// Node's per-file module scope hides this - every other suite stays green while
+// the app is dead - so parse the scripts the way the BROWSER does: concatenated,
+// in index.html order, as one unit, reporting which files collided.
 //
-// Node's tests cannot see this: `require` gives each file its own module scope,
-// so every other suite stays green while the app is dead in the browser. This
-// has already happened twice - a top-level `const KS` in both chord.js and
-// mic-input.js, then a top-level `const CHORD_QUALITIES` in both
-// chord-qualities.js and chord.js.
-//
-// So: parse the scripts the way the BROWSER does - concatenated, in index.html
-// order, as one unit - and report which name collided in which files.
+// Covers lexical declarations (const/let/class) only: duplicate top-level
+// `function`s are legal and silently last-wins, so no parse error exists to catch.
 
 'use strict';
 

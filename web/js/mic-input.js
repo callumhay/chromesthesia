@@ -37,12 +37,15 @@
 // touches the speller directly.
 const CHORD = (typeof require !== 'undefined')
   ? require('./chord.js')
-  : (typeof window !== 'undefined' ? window : null);
-const CHORD_Q = (typeof require !== 'undefined')
+  : (typeof window !== 'undefined' ? window.Chord : null);
+// Local alias. Distinct from chord.js's own `QUALITIES` alias for this same
+// array: classic scripts share one global scope, so both files using the bare
+// name would collide (see global-scope.test.js).
+const MIC_QUALITIES = (typeof require !== 'undefined')
   ? require('./chord-qualities.js').CHORD_QUALITIES
   : (typeof window !== 'undefined' && window.ChordQualities ? window.ChordQualities.CHORD_QUALITIES : null);
 // Hard dependencies: chord-qualities.js and chord.js must load BEFORE this file.
-if (!CHORD_Q) throw new Error('mic-input.js: chord-qualities.js must load first');
+if (!MIC_QUALITIES) throw new Error('mic-input.js: chord-qualities.js must load first');
 if (!CHORD || !CHORD.nameFromPitchClasses) throw new Error('mic-input.js: chord.js must load first');
 
 // Confidence gate + asymmetric hold hysteresis over the fuzzy per-frame chord
@@ -522,7 +525,7 @@ function createMicInput() {
 
     let best = null, bestScore = 0;
     for (let root = 0; root < 12; root++) {
-      for (const q of CHORD_Q) {
+      for (const q of MIC_QUALITIES) {
         let inS = 0;
         for (let k = 0; k < q.ivs.length; k++) {
           inS += c[(root + q.ivs[k]) % 12] * (k === 0 ? 1.15 : 1);
@@ -536,22 +539,15 @@ function createMicInput() {
     for (const iv of best.q.ivs) frac += c[(best.root + iv) % 12];
     if (frac < 0.5) return null;   // too much energy outside the chord tones
 
-    // Convert the detected chord to a 0=C pitch-class set + bass pc, then name it
-    // through the shared engine. best.root and bassPcA are 0=A; add 9 for 0=C.
-    //
-    // The frame bass (bassPcA) is the lowest strong pitch class in the WHOLE
-    // spectrum - a bass guitar, a kick's rumble, anything down there - so it is
-    // not necessarily one of this chord's tones. Only trust it when it IS a chord
-    // tone; otherwise a non-chord bass would silently degrade the alias ordering
-    // and make the dim7 bass fallback prefer a root that is not in the chord.
-    // Fall back to the detected root.
-    //
-    // NOTE the -1 sentinel MUST be checked before converting: (-1 + 9) % 12 === 8,
-    // a perfectly valid-looking Ab. Converting an unset bass would invent one.
+    // 0=A -> 0=C (+9), then name it through the shared engine. The frame bass is
+    // the lowest strong pc in the whole spectrum, not necessarily a tone of this
+    // chord - trust it only when it is one, else use the detected root. The -1
+    // sentinel must be checked BEFORE converting: (-1 + 9) % 12 === 8 would
+    // invent an Ab bass.
     const pcSetC = new Set(best.q.ivs.map((iv) => ((best.root + iv) % 12 + 9) % 12));
     const rootC = (best.root + 9) % 12;
-    const bassCandidate = bassPcA >= 0 ? (bassPcA + 9) % 12 : -1;
-    const bassC = pcSetC.has(bassCandidate) ? bassCandidate : rootC;
+    const bassCandidateC = bassPcA >= 0 ? (bassPcA + 9) % 12 : -1;
+    const bassC = pcSetC.has(bassCandidateC) ? bassCandidateC : rootC;
     const name = CHORD.nameFromPitchClasses(pcSetC, bassC, getEstimatedKey());
     return { name, conf: frac };   // conf = fraction of energy on chord tones
   }

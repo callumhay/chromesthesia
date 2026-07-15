@@ -62,11 +62,10 @@ test('a non-chord-tone frame bass is ignored (falls back to the detected root)',
   assert.strictEqual(det.name, 'Am7 / C6', `non-chord bass must not lead, got "${det.name}"`);
 });
 
-// The unset bass is the sentinel -1, and (-1 + 9) % 12 === 8 in JS - so dropping
-// the `bassPcA >= 0` guard invents an Ab bass. This must use a chord that
-// CONTAINS Ab: on any other chord the chord-tone guard would reject the phantom
-// anyway and the bug would hide. Fm7 == Ab6 contains Ab and is bass-ordered, so
-// the phantom surfaces as a wrong name (verified: it yields "Ab6 / Fm7").
+// The unset bass is the sentinel -1, and (-1 + 9) % 12 === 8 - so dropping the
+// `bassPcA >= 0` guard invents an Ab bass. This MUST use a chord containing Ab:
+// on any other chord the chord-tone guard rejects the phantom anyway and the bug
+// hides. Fm7 == Ab6 contains Ab and is bass-ordered, so the phantom surfaces.
 test('an unset frame bass invents no bass note', () => {
   const mic = createMicInput();
   // Fm7 == Ab6 = F Ab C Eb. In 0=A: F=8, Ab=11, C=3, Eb=6. Bass left unset (-1).
