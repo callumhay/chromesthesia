@@ -200,6 +200,19 @@ shared array:
 module.exports = { ChordReadout, nameFromMidiNotes, impliedChord, chordName, QUALITIES };
 ```
 
+**Carried forward from the Task 1 review — a pre-existing quirk to DECIDE here, not
+silently fix:** `ø7` has `required: [0,3,6,10]` (all four tones) with `min: 3`.
+Since all four are required, `present` is always 4, so **`min: 3` is dead** — it can
+never bind. Every comparable row disagrees: `dim`/`aug`/`sus2`/`sus4` use
+`min == ivs.length`, and `dim7` uses `min: 4`. This is copied faithfully from the
+original `chord.js:126`, so it is NOT a regression and Task 1 deliberately left it
+alone. Setting it to `min: 4` would make the table self-consistent but is a
+behaviour change to implied matching. Do NOT change it as part of this task's
+no-op swap. If you want to change it, do so as a SEPARATE commit after Step 4's
+regression run is green, and confirm `chord.implied.test.js` still passes — if it
+does, the change is provably inert and worth taking for consistency; if it does
+not, leave it and report.
+
 - [ ] **Step 4: Verify all chord tests pass UNCHANGED**
 
 Run: `node web/js/chord.test.js && node web/js/chord.alias.test.js && node web/js/chord.implied.test.js`
@@ -210,16 +223,76 @@ lists exactly (order matters for tie-breaks). Do NOT change the tests here.
 Also run `node web/js/chord-qualities.test.js` (6 passed) to confirm the shared
 file still loads.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Add the script tag NOW (the dependency is load-bearing as of this task)**
+
+The moment `chord.js` requires `chord-qualities.js`, the browser needs the script
+tag — otherwise `chord.js` throws at parse time and the whole app is dead. The Node
+tests CANNOT catch this: they take the `require` branch, so the `window` branch is
+never exercised. All four suites passing is NOT evidence the app works.
+
+In `web/index.html`, add `chord-qualities.js` before `chord.js`:
+
+```html
+<script src="./js/note-colours.js"></script>
+<script src="./js/key-spelling.js"></script>
+<script src="./js/chord-qualities.js"></script>
+<script src="./js/chord.js"></script>
+```
+
+Then VERIFY IN A BROWSER (not just Node) that the page loads with no errors —
+serve the repo root and open `/web/`. Confirm no `chord-qualities.js must load
+first` and no `ChordReadout is not a constructor` in the console.
+
+(This was originally deferred to Task 7. That was wrong: it left the app broken
+across five tasks. Task 7 still re-verifies the final script order.)
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add web/js/chord.js
+git add web/js/chord.js web/index.html
 git commit -m "refactor: chord.js reads the shared chord vocabulary"
 ```
 
 ---
 
 ## Task 3: `nameFromPitchClasses` engine entry point
+
+**Carried forward from the Task 2 review — collapse the aliases here.** Task 2
+left `QUALITIES` and `IMPLIED` as two names pointing at the SAME
+`CHORD_QUALITIES` array (that kept Task 2's diff to a genuine no-op). But two
+names for one array is now a fiction: a reader reasonably assumes they differ
+(they did, before), and must check to learn they don't. Since this task rewrites
+the engine's entry point anyway, fold both into a single `CHORD_QUALITIES`
+reference. There are only 4 call sites (chord.js:64, 105, 106, 124). Also drop
+`QUALITIES` from `module.exports` — nothing imports it (no test, no module), and
+CLAUDE.md is explicit about not keeping unused surface. Keep the regression guard:
+the existing chord tests must still pass unchanged.
+
+**DECIDED (plan owner): drop `min`, replace with `oneOf` — do it in this task.**
+
+`min` is live in exactly ONE row: `'7'` (min 3 > required.length 2). In the other
+12 rows `min <= required.length`, so `present < q.min` can never fire — dead
+weight. What `'7'`'s `min: 3` actually encodes (verified: `C+Bb` -> null;
+`C E Bb` -> "C7"; `C G Bb` -> "C7") is **"root + b7, plus at least one of the 3rd
+or 5th"** — a musical constraint obliquely expressed as a count.
+
+Replace the `min` column with an optional `oneOf` field: intervals of which AT
+LEAST ONE must be present. Only `'7'` needs it (`oneOf: [4, 7]`); every other row
+drops the field entirely and is fully pinned by `required` alone.
+
+**Proven behaviour-preserving** across all 4096 pitch-class subsets x 12 roots x
+13 qualities = 638,976 combinations: **0 differences**. Keep the regression guard
+(15/9/16 unchanged) as the live proof.
+
+Changes:
+- `chord-qualities.js`: delete `min` from all 13 rows; add `oneOf: [4, 7]` to
+  `'7'`. Update the header to document `oneOf` and drop `min`.
+- `chord-qualities.test.js`: the invariant test's `min <= ivs.length` assertion
+  goes away; add that every `oneOf` interval (where present) is also in `ivs`.
+- `chord.js` `impliedChord`: replace the `if (present < q.min) continue;` check
+  with `if (q.oneOf && !q.oneOf.some((iv) => set.has((root + iv) % 12))) continue;`.
+  NOTE `present` is still used by the candidate tie-break sort (`b.present -
+  a.present`) — keep computing it, only the `min` GATE goes.
 
 **Files:**
 - Modify: `web/js/chord.js` (add `nameFromPitchClasses`; make `nameFromMidiNotes` a wrapper; export it)
@@ -596,6 +669,10 @@ Replace the `detectChord` function (around lines 507-540) with:
     // tone; otherwise a non-chord bass would silently degrade the alias ordering
     // to root-ascending and, worse, make the dim7 bass fallback prefer a root that
     // is not in the chord (arbitrary name first). Fall back to the detected root.
+    //
+    // NOTE the -1 sentinel MUST be checked before converting: (-1 + 9) % 12 === 8,
+    // a perfectly valid-looking G#. Converting an unset bass would silently invent
+    // one. The `bassPcA >= 0` guard below is what prevents that.
     const pcSetC = new Set(best.q.ivs.map((iv) => ((best.root + iv) % 12 + 9) % 12));
     const rootC = (best.root + 9) % 12;
     const bassCandidate = bassPcA >= 0 ? (bassPcA + 9) % 12 : -1;

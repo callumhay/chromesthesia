@@ -100,7 +100,7 @@
   const viz = window.createVisualizer(canvas, () => params);
   const chordEl = document.getElementById('chordname');
   const impliedEl = document.getElementById('impliedchord');
-  const chord = new window.ChordReadout(chordEl, impliedEl);
+  const chord = new window.Chord.ChordReadout(chordEl, impliedEl);
   const mic = window.createMicInput();
   const micOut = { pcEnergy: new Float32Array(12), chroma: new Float32Array(12), level: 0 };
 

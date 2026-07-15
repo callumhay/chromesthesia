@@ -4,8 +4,8 @@
 // WebGL visualizer (Research/waveloop.html). This is a self-contained PORT of
 // proven DSP code, NOT a redesign: the dual-resolution FFT, adaptive makeup
 // gain, six-layer DSP stack (drum cut, phon weight, gate, whiten, overtone
-// cut, peak focus), pitch-class fold, and fuzzy chord estimator are copied
-// straight across.
+// cut, peak focus), and pitch-class fold are copied straight across. The chord
+// estimator keeps waveloop's fuzzy scoring but names through chord.js.
 //
 // The one intentional difference from waveloop: the fold no longer paints the
 // Oklch per-register colour accumulators (angR/angG/angB) or the rim register
@@ -31,12 +31,23 @@
 
 'use strict';
 
-// Shared key-aware speller. Named distinctly (NOT `KS`) because chord.js also
-// declares a top-level `const KS`; classic browser scripts share one global
-// scope, so a duplicate `const KS` here would be a load-time SyntaxError.
-const KEY_SPELLING = (typeof require !== 'undefined')
-  ? require('./key-spelling.js')
-  : (typeof window !== 'undefined' ? window.KeySpelling : null);
+// Shared chord vocabulary + naming engine, so the mic readout gets the same
+// chords, aliases, and spelling as the MIDI readout instead of its own copy.
+const CHORD = (typeof require !== 'undefined')
+  ? require('./chord.js')
+  : (typeof window !== 'undefined' ? window.Chord : null);
+// Prefixed because classic scripts share one global scope - a bare `QUALITIES`
+// would collide with chord.js (see global-scope.test.js).
+const MIC_QUALITIES = (typeof require !== 'undefined')
+  ? require('./chord-qualities.js').CHORD_QUALITIES
+  : (typeof window !== 'undefined' && window.ChordQualities ? window.ChordQualities.CHORD_QUALITIES : null);
+// Hard dependencies: chord-qualities.js and chord.js must load BEFORE this file.
+if (!MIC_QUALITIES) throw new Error('mic-input.js: chord-qualities.js must load first');
+if (!CHORD || !CHORD.nameFromPitchClasses) throw new Error('mic-input.js: chord.js must load first');
+
+// The old -70 dB spectral peak threshold, in linear magnitude. A bin must clear
+// this to count as a real partial (both for the chroma pick and the bass hunt).
+const PEAK_FLOOR_MAG = 3.2e-4;
 
 // Confidence gate + asymmetric hold hysteresis over the fuzzy per-frame chord
 // estimate, so the mic readout does not flicker. getSettings() returns live
@@ -77,20 +88,6 @@ function createMicInput() {
   // overtone-suppression peak table
   const PEAK_CAP = 80;
 
-  // one template per chord quality; all 12 roots are rotations of the chroma
-  // vector, so we score template x rotated chroma (see detectChord).
-  const QUALITIES = [
-    { name: '',     ivs: [0, 4, 7] },
-    { name: 'm',    ivs: [0, 3, 7] },
-    { name: 'dim',  ivs: [0, 3, 6] },
-    { name: 'aug',  ivs: [0, 4, 8] },
-    { name: 'sus4', ivs: [0, 5, 7] },
-    { name: 'sus2', ivs: [0, 2, 7] },
-    { name: '7',    ivs: [0, 4, 7, 10] },
-    { name: 'maj7', ivs: [0, 4, 7, 11] },
-    { name: 'm7',   ivs: [0, 3, 7, 10] },
-  ];
-
   // DSP presets; the Melodic preset is the default (Raw zeroes every knob,
   // making the whole DSP stage a no-op).
   const DSP_PRESETS = {
@@ -115,6 +112,7 @@ function createMicInput() {
   // per-frame accumulators and smoothed chroma for the chord detector
   const chromaRaw = new Float32Array(12);   // 12-bin chroma, filled by the fold's peak pick
   const chroma = new Float32Array(12);      // smoothed chroma, index 0 = A
+  let bassPcA = -1;         // lowest-frequency strong pitch class this frame (0 = A); -1 = none
 
   // overtone-suppression scratch
   const peakIdx = new Int32Array(PEAK_CAP);
@@ -358,6 +356,9 @@ function createMicInput() {
   //
   // pc = round(fract(log2(f/440)) * 12) % 12 gives index 0 = A (same convention
   // as waveloop's chromaRaw peak pick).
+  //
+  // NOTE: the bassPcA capture below assumes foldBand is called in ASCENDING band
+  // order (low band first), so the lowest-frequency partial wins.
   function foldBand(b, out) {
     const { mag, hz, i0, i1 } = b;
     let total = 0;
@@ -377,8 +378,12 @@ function createMicInput() {
       const pc = ((Math.round(frac * 12) % 12) + 12) % 12;
       out.pcEnergy[pc] += m;
 
-      // 3.2e-4 is the old -70 dB peak threshold in linear magnitude
-      if (f < 2200 && m > mag[i - 1] && m >= mag[i + 1] && m > 3.2e-4) {
+      // Bass = lowest-frequency pitch class with a real partial (bins walk
+      // low->high, so the first hit wins). Must be a local peak, not merely above
+      // the floor, or broadband rumble would claim the bass.
+      if (bassPcA < 0 && m > PEAK_FLOOR_MAG && m > mag[i - 1] && m >= mag[i + 1]) bassPcA = pc;
+
+      if (f < 2200 && m > mag[i - 1] && m >= mag[i + 1] && m > PEAK_FLOOR_MAG) {
         const cpc = Math.round(frac * 12) % 12;
         chromaRaw[cpc] += Math.sqrt(m) * (1 - 0.35 * o);
       }
@@ -465,6 +470,7 @@ function createMicInput() {
 
     out.pcEnergy.fill(0);
     chromaRaw.fill(0);
+    bassPcA = -1;
 
     let raw = 0;
     for (const b of ana.bands) raw += toMag(b.data, b.mag, b.i0, b.i1);
@@ -500,10 +506,11 @@ function createMicInput() {
     lastStableName = stabilizer.update(now, det ? det.name : null, det ? det.conf : 0);
   }
 
-  // Fuzzy chord ESTIMATE from the smoothed chroma (ports detectChord). Returns
-  // just the chord name string (e.g. "Cmaj7") or null. Since this is an
-  // audio-derived guess, it scores every root x quality by partial match and
-  // biases toward the bassier root, unlike the exact MIDI-driven chord readout.
+  // Fuzzy chord ESTIMATE from the smoothed chroma. Scores every root x quality
+  // (shared vocabulary) by partial match, biased toward the root, then hands the
+  // winning chord's pitch classes + bass to the shared naming engine so the mic
+  // readout gets the SAME aliasing, key-aware spelling, and dim7 root handling as
+  // the MIDI readout. Returns { name, conf } or null.
   function detectChord() {
     let total = 0;
     for (let i = 0; i < 12; i++) total += chroma[i];
@@ -515,7 +522,7 @@ function createMicInput() {
 
     let best = null, bestScore = 0;
     for (let root = 0; root < 12; root++) {
-      for (const q of QUALITIES) {
+      for (const q of MIC_QUALITIES) {
         let inS = 0;
         for (let k = 0; k < q.ivs.length; k++) {
           inS += c[(root + q.ivs[k]) % 12] * (k === 0 ? 1.15 : 1);
@@ -528,15 +535,18 @@ function createMicInput() {
     let frac = 0;
     for (const iv of best.q.ivs) frac += c[(best.root + iv) % 12];
     if (frac < 0.5) return null;   // too much energy outside the chord tones
-    const rootPcC = (best.root + 9) % 12;               // 0=A -> 0=C (A is pc 9)
-    // NOTE: `name` is spelled in 0=C (via the shared speller); `root`/`pcs`
-    // stay 0=A for the visualizer.
-    return {
-      name: KEY_SPELLING.spell(rootPcC, getEstimatedKey()) + best.q.name,
-      root: best.root,
-      pcs: best.q.ivs.map((iv) => (best.root + iv) % 12),
-      conf: frac,   // fraction of energy on chord tones (~0.5 weak .. 1.0 pure)
-    };
+
+    // 0=A -> 0=C (+9), then name it through the shared engine. The frame bass is
+    // the lowest strong pc in the whole spectrum, not necessarily a tone of this
+    // chord - trust it only when it is one, else use the detected root. The -1
+    // sentinel must be checked BEFORE converting: (-1 + 9) % 12 === 8 would
+    // invent an Ab bass.
+    const pcSetC = new Set(best.q.ivs.map((iv) => ((best.root + iv) % 12 + 9) % 12));
+    const rootC = (best.root + 9) % 12;
+    const bassCandidateC = bassPcA >= 0 ? (bassPcA + 9) % 12 : -1;
+    const bassC = pcSetC.has(bassCandidateC) ? bassCandidateC : rootC;
+    const name = CHORD.nameFromPitchClasses(pcSetC, bassC, getEstimatedKey());
+    return { name, conf: frac };   // conf = fraction of energy on chord tones
   }
 
   // committed, flicker-free chord name for display (updated each analyse())
@@ -550,6 +560,10 @@ function createMicInput() {
     dsp,
     chordSettings,
     setKeySource,             // host supplies the current estimated key for spelling
+    // test hooks: drive detectChord from a synthetic chroma (no live FFT needed)
+    _setChromaForTest: (arr) => { for (let i = 0; i < 12; i++) chroma[i] = arr[i]; },
+    _setBassPcForTest: (pcA) => { bassPcA = pcA; },
+    _detectChordForTest: () => detectChord(),
   };
 }
 

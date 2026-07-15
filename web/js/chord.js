@@ -21,24 +21,15 @@ const KS = (typeof require !== 'undefined')
   ? require('./key-spelling.js')
   : (typeof window !== 'undefined' ? window.KeySpelling : null);
 
-// Chord qualities as interval sets from the root (semitones). Order matters:
-// earlier = preferred when two qualities share a pitch-class set (none here do
-// for exact-match, but keep the common triads first).
-const QUALITIES = [
-  { name: '',     ivs: [0, 4, 7] },        // major
-  { name: 'm',    ivs: [0, 3, 7] },        // minor
-  { name: 'dim',  ivs: [0, 3, 6] },
-  { name: 'aug',  ivs: [0, 4, 8] },
-  { name: 'sus2', ivs: [0, 2, 7] },
-  { name: 'sus4', ivs: [0, 5, 7] },
-  { name: '7',    ivs: [0, 4, 7, 10] },
-  { name: 'maj7', ivs: [0, 4, 7, 11] },
-  { name: 'm7',   ivs: [0, 3, 7, 10] },
-  { name: 'ø7',   ivs: [0, 3, 6, 10] },     // half-diminished (a.k.a. m7b5)
-  { name: 'dim7', ivs: [0, 3, 6, 9] },
-  { name: '6',    ivs: [0, 4, 7, 9] },
-  { name: 'm6',   ivs: [0, 3, 7, 9] },
-];
+const CQ = (typeof require !== 'undefined')
+  ? require('./chord-qualities.js')
+  : (typeof window !== 'undefined' ? window.ChordQualities : null);
+// Hard dependency: chord-qualities.js must load BEFORE this file (see index.html
+// script order). Assert rather than dying later on a confusing null-property read.
+if (!CQ || !CQ.CHORD_QUALITIES) throw new Error('chord.js: chord-qualities.js must load first');
+// Local alias, NOT a bare `const CHORD_QUALITIES`: classic scripts share one
+// global scope, so that collides with chord-qualities.js (see global-scope.test.js).
+const QUALITIES = CQ.CHORD_QUALITIES;
 
 // Unique pitch-class set (0..11) from a list of MIDI note numbers. Also returns
 // the pitch classes ordered by the lowest MIDI note at which each appears, so
@@ -64,70 +55,57 @@ function exactMatch(heldSet, root, ivs) {
 }
 
 // All exact names for the held pitch-class set (chord aliases), ordered so the
-// interpretation rooted on the bass note comes first, then by root ascending.
+// preferred interpretation comes first (the bass-rooted one, except for a dim7
+// in a key - see below), then by root ascending.
 // The same notes can name more than one chord (C6 == Am7, symmetric aug/dim7),
 // so this returns every valid (root, quality) match. Empty if not a chord.
-// bassPc: the pitch class of the lowest held note (may be null).
+// bassPc: the pitch class of the lowest held note (may be undefined - then no
+// interpretation is preferred and the names come back root-ascending).
 function chordNames(heldSet, bassPc, estimatedKey) {
   const matches = [];
   for (let root = 0; root < 12; root++) {
     for (const q of QUALITIES) {
       if (exactMatch(heldSet, root, q.ivs)) {
-        matches.push({ root, name: KS.spell(root, estimatedKey) + q.name });
+        matches.push({ root, quality: q.name, name: KS.spell(root, estimatedKey) + q.name });
       }
     }
   }
+  // Which interpretation leads. Normally the bass-rooted one. A dim7 is the
+  // exception: it is symmetric, so all four roots are equal by interval math -
+  // but musically the diatonic function is the vii°7, rooted on the key's
+  // leading tone (tonic - 1; in minor this is the harmonic-minor leading tone,
+  // which is precisely where the vii°7 comes from - natural minor's flat 7th is
+  // a subtonic and forms no dim7). Prefer that when the key supplies it;
+  // otherwise fall back to the bass like every other chord. dim7-only: aug is
+  // symmetric too but has no leading-tone function.
+  let preferredRoot = bassPc;
+  if (estimatedKey && matches.some((m) => m.quality === 'dim7')) {
+    const leadingTone = ((estimatedKey.tonic - 1) % 12 + 12) % 12;
+    if (matches.some((m) => m.root === leadingTone && m.quality === 'dim7')) {
+      preferredRoot = leadingTone;
+    }
+  }
   matches.sort((a, b) => {
-    const ab = a.root === bassPc ? -1 : 0, bb = b.root === bassPc ? -1 : 0;
-    return (ab - bb) || (a.root - b.root);
+    const ap = a.root === preferredRoot ? -1 : 0, bp = b.root === preferredRoot ? -1 : 0;
+    return (ap - bp) || (a.root - b.root);
   });
   return matches.map((m) => m.name);
 }
 
-// Convenience: the single primary exact name, or null. Used where only a
-// yes/no "is this an exact chord" answer is needed (e.g. implied-chord guard).
-function chordName(heldSet) {
-  const names = chordNames(heldSet);
-  return names.length ? names[0] : null;
+// Do the held pitch classes exactly form a recognized chord? Spelling is
+// irrelevant to the answer, so no bass/key is passed - only the count matters.
+function isExactChord(heldSet) {
+  return chordNames(heldSet).length > 0;
 }
 
 // --- implied chords (supplementary) ---------------------------------------
 // When the held notes are NOT an exact chord but strongly imply one, name it.
-// Each quality lists the intervals that MUST be present for it to be implied -
-// the root (0) plus the identity-defining tone(s) - and a coverage minimum
-// (how many of the quality's tones must sound). Following 4-part-harmony rules
-// with mild relaxation: a triad needs the root + its identity tone (the 3rd,
-// or the altered 5th for dim/aug); a 7th chord needs root + 3rd + 7th and 3 of
-// its 4 tones. If more than one quality is implied for the same root, or the
-// same coverage is reached by different roots, it is ambiguous -> no suggestion.
-const IMPLIED = [
-  // triads: identity is the 3rd (maj/min) - root + 3rd required, 2 of 3 tones
-  { name: '',     ivs: [0, 4, 7],     required: [0, 4],    min: 2 },
-  { name: 'm',    ivs: [0, 3, 7],     required: [0, 3],    min: 2 },
-  // dim: identity is the b5 + the min3 - root + both required (root+b5 alone is
-  // a bare tritone, too ambiguous). aug is symmetric (every tone is a possible
-  // root), so only name it when all three tones are present.
-  { name: 'dim',  ivs: [0, 3, 6],     required: [0, 3, 6], min: 3 },
-  { name: 'aug',  ivs: [0, 4, 8],     required: [0, 4, 8], min: 3 },
-  // sus: no real 3rd, so identity rests on BOTH the sus tone and the 5th -
-  // require all three tones (a bare root+4th/5th is an ambiguous power chord,
-  // not an implied sus)
-  { name: 'sus2', ivs: [0, 2, 7],     required: [0, 2, 7], min: 3 },
-  { name: 'sus4', ivs: [0, 5, 7],     required: [0, 5, 7], min: 3 },
-  // 7th chords: the quality note is the 7th (that is what makes it a 7th
-  // chord), so root + 7th are required. When the 3rd is also held it settles
-  // major vs minor; when the 3rd is ABSENT the plain dominant '7' is the
-  // default (it sorts before maj7/m7 below, so it wins the tie). maj7 and m7
-  // additionally require their own defining 3rd so they only appear when the
-  // colour that names them is actually present.
-  { name: '7',    ivs: [0, 4, 7, 10], required: [0, 10],     min: 3 },
-  { name: 'maj7', ivs: [0, 4, 7, 11], required: [0, 4, 11],  min: 3 },
-  { name: 'm7',   ivs: [0, 3, 7, 10], required: [0, 3, 10],  min: 3 },
-  { name: 'ø7',   ivs: [0, 3, 6, 10], required: [0, 3, 6, 10], min: 3 },   // half-dim
-  { name: 'dim7', ivs: [0, 3, 6, 9],  required: [0, 3, 6, 9],  min: 4 },
-  { name: '6',    ivs: [0, 4, 7, 9],  required: [0, 4, 9],   min: 3 },
-  { name: 'm6',   ivs: [0, 3, 7, 9],  required: [0, 3, 9],   min: 3 },
-];
+// Each quality gates on two fields: `required` - the identity tones that must ALL
+// sound (the root plus what defines the quality: the 3rd for maj/min, the altered
+// 5th for dim/aug, the 7th for a dominant) - and the optional `oneOf`, at least
+// one of which must sound. No held note may fall outside the quality's tones.
+// If more than one quality is implied for the same root, or the same coverage is
+// reached by different roots, it is ambiguous -> no suggestion.
 
 // Name the chord implied by the held pitch classes, or null. Returns null when
 // the notes already form an EXACT chord (that is the main readout's job) and
@@ -135,18 +113,20 @@ const IMPLIED = [
 function impliedChord(midiNotes, estimatedKey) {
   const { set, order } = pitchClasses(midiNotes);
   if (set.size < 2) return null;
-  if (chordName(set)) return null;            // exact -> not "implied"
+  if (isExactChord(set)) return null;         // exact -> not "implied"
 
   const lowestPc = order[0];
   const candidates = [];
   for (let root = 0; root < 12; root++) {
-    for (let qi = 0; qi < IMPLIED.length; qi++) {
-      const q = IMPLIED[qi];
+    for (let qi = 0; qi < QUALITIES.length; qi++) {
+      const q = QUALITIES[qi];
       // every required (identity) tone must be present
       if (!q.required.every((iv) => set.has((root + iv) % 12))) continue;
       // count how many of the quality's tones are held (coverage)
       const present = q.ivs.filter((iv) => set.has((root + iv) % 12)).length;
-      if (present < q.min) continue;
+      // at least one of these tones must sound (only the dominant '7' needs this:
+      // root + b7 alone is too bare to name a dominant - it wants the 3rd or 5th)
+      if (q.oneOf && !q.oneOf.some((iv) => set.has((root + iv) % 12))) continue;
       // no held note may fall outside the chord's tones (else it's a different
       // harmony, not this chord implied)
       let allInside = true;
@@ -159,7 +139,7 @@ function impliedChord(midiNotes, estimatedKey) {
   }
   if (candidates.length === 0) return null;
 
-  // tie-break: prefer simpler quality (earlier in IMPLIED = smaller/commoner),
+  // tie-break: prefer simpler quality (earlier in the vocabulary = smaller/commoner),
   // then the candidate rooted on the lowest held note, then more tones present.
   candidates.sort((a, b) =>
     a.size - b.size || a.qi - b.qi ||
@@ -176,17 +156,24 @@ function impliedChord(midiNotes, estimatedKey) {
   return candidates[0].name;
 }
 
-// The public readout function: exact held MIDI notes -> display string.
-function nameFromMidiNotes(midiNotes, estimatedKey) {
-  const { set, order } = pitchClasses(midiNotes);
-  if (set.size === 0) return '';
+// Name a pitch-class SET (0 = C) -> display string. bassPc: the bass pitch class
+// (may be undefined); orderedPcs: pitch classes ordered bass-first for the
+// note-name fallback (defaults to numeric order when omitted).
+function nameFromPitchClasses(pcSet, bassPc, estimatedKey, orderedPcs) {
+  if (pcSet.size === 0) return '';
   // exact chord(s): show every valid name (aliases), bass-note interpretation
   // first, joined with " / " (C E G A -> "C6 / Am7")
-  const names = chordNames(set, order[0], estimatedKey);
+  const names = chordNames(pcSet, bassPc, estimatedKey);
   if (names.length) return names.join(' / ');
-  // not a recognized chord: show the held note names (deduped by pitch class,
-  // ordered by pitch)
+  // not a recognized chord: show the note names
+  const order = orderedPcs || [...pcSet].sort((a, b) => a - b);
   return order.map((pc) => KS.spell(pc, estimatedKey)).join(' ');
+}
+
+// The MIDI readout: exact held MIDI notes -> display string.
+function nameFromMidiNotes(midiNotes, estimatedKey) {
+  const { set, order } = pitchClasses(midiNotes);
+  return nameFromPitchClasses(set, order[0], estimatedKey, order);
 }
 
 // Thin DOM binding: set the readout text from the current held notes. No
@@ -224,9 +211,9 @@ class ChordReadout {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { ChordReadout, nameFromMidiNotes, impliedChord, chordName, QUALITIES };
+  module.exports = { ChordReadout, nameFromMidiNotes, nameFromPitchClasses, impliedChord };
 }
+// One namespace object, like key-spelling.js and chord-qualities.js.
 if (typeof window !== 'undefined') {
-  window.ChordReadout = ChordReadout;
-  window.nameFromMidiNotes = nameFromMidiNotes;
+  window.Chord = { ChordReadout, nameFromMidiNotes, nameFromPitchClasses };
 }

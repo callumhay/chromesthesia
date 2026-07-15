@@ -68,11 +68,33 @@ function buildMajorTable(tonicPc) {
   return table;
 }
 
-// Spelling table for an estimated key (minor maps to its relative major).
+// Tonic letter for each minor key, by tonic pc (0 = C). Needed because a minor
+// key's letter is not always its relative major's: Eb minor and D# minor are the
+// same pitches spelled differently, and the common choice decides the letter.
+const MINOR_LETTERS = {
+  0: 'C', 1: 'C', 2: 'D', 3: 'E', 4: 'E', 5: 'F',
+  6: 'F', 7: 'G', 8: 'G', 9: 'A', 10: 'B', 11: 'B',
+};
+
+// Spelling table for an estimated key. A minor key borrows its relative major's
+// table - that is the NATURAL minor scale, which has no leading tone. The raised
+// 7th must therefore be patched in: it is the letter below the tonic's, raised
+// to hit tonic-1 (D minor -> C#, never Db; a flat 7th is a subtonic that resolves
+// down, not a leading tone). Without this the relative major's flat signature
+// spells the leading tone as a flat in D/G/C#/F#/G# minor.
 function tableForKey(key) {
   if (!key) return DEFAULT_SPELLING;
-  const majorTonic = key.mode === 'minor' ? (key.tonic + 3) % 12 : key.tonic;
-  return buildMajorTable(((majorTonic % 12) + 12) % 12);
+  const tonic = ((key.tonic % 12) + 12) % 12;
+  if (key.mode !== 'minor') return buildMajorTable(tonic);
+
+  const table = buildMajorTable((tonic + 3) % 12).slice();
+  const letter = LETTERS[(LETTERS.indexOf(MINOR_LETTERS[tonic]) + 6) % 7];
+  const leadingTonePc = (tonic + 11) % 12;
+  const name = accidental(letter, deltaToPc(letter, leadingTonePc));
+  // A double accidental (G# minor's F##) is a theoretical extreme; leave the
+  // borrowed spelling rather than show it, matching buildMajorTable's fallback.
+  if (!/##|bb/.test(name)) table[leadingTonePc] = name;
+  return table;
 }
 
 // spell(pc, key) -> note name. pc is 0 = C; key = { tonic, mode } or null.
