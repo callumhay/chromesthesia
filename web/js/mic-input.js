@@ -31,12 +31,19 @@
 
 'use strict';
 
-// Shared key-aware speller. Named distinctly (NOT `KS`) because chord.js also
-// declares a top-level `const KS`; classic browser scripts share one global
-// scope, so a duplicate `const KS` here would be a load-time SyntaxError.
-const KEY_SPELLING = (typeof require !== 'undefined')
-  ? require('./key-spelling.js')
-  : (typeof window !== 'undefined' ? window.KeySpelling : null);
+// Shared chord vocabulary + naming engine, so the mic readout gets the same
+// chords, aliases, and spelling as the MIDI readout instead of its own copy.
+// Key-aware spelling now happens inside the engine, so this file no longer
+// touches the speller directly.
+const CHORD = (typeof require !== 'undefined')
+  ? require('./chord.js')
+  : (typeof window !== 'undefined' ? window : null);
+const CHORD_Q = (typeof require !== 'undefined')
+  ? require('./chord-qualities.js').CHORD_QUALITIES
+  : (typeof window !== 'undefined' && window.ChordQualities ? window.ChordQualities.CHORD_QUALITIES : null);
+// Hard dependencies: chord-qualities.js and chord.js must load BEFORE this file.
+if (!CHORD_Q) throw new Error('mic-input.js: chord-qualities.js must load first');
+if (!CHORD || !CHORD.nameFromPitchClasses) throw new Error('mic-input.js: chord.js must load first');
 
 // Confidence gate + asymmetric hold hysteresis over the fuzzy per-frame chord
 // estimate, so the mic readout does not flicker. getSettings() returns live
@@ -76,20 +83,6 @@ function createMicInput() {
 
   // overtone-suppression peak table
   const PEAK_CAP = 80;
-
-  // one template per chord quality; all 12 roots are rotations of the chroma
-  // vector, so we score template x rotated chroma (see detectChord).
-  const QUALITIES = [
-    { name: '',     ivs: [0, 4, 7] },
-    { name: 'm',    ivs: [0, 3, 7] },
-    { name: 'dim',  ivs: [0, 3, 6] },
-    { name: 'aug',  ivs: [0, 4, 8] },
-    { name: 'sus4', ivs: [0, 5, 7] },
-    { name: 'sus2', ivs: [0, 2, 7] },
-    { name: '7',    ivs: [0, 4, 7, 10] },
-    { name: 'maj7', ivs: [0, 4, 7, 11] },
-    { name: 'm7',   ivs: [0, 3, 7, 10] },
-  ];
 
   // DSP presets; the Melodic preset is the default (Raw zeroes every knob,
   // making the whole DSP stage a no-op).
@@ -513,10 +506,11 @@ function createMicInput() {
     lastStableName = stabilizer.update(now, det ? det.name : null, det ? det.conf : 0);
   }
 
-  // Fuzzy chord ESTIMATE from the smoothed chroma (ports detectChord). Returns
-  // just the chord name string (e.g. "Cmaj7") or null. Since this is an
-  // audio-derived guess, it scores every root x quality by partial match and
-  // biases toward the bassier root, unlike the exact MIDI-driven chord readout.
+  // Fuzzy chord ESTIMATE from the smoothed chroma. Scores every root x quality
+  // (shared vocabulary) by partial match, biased toward the root, then hands the
+  // winning chord's pitch classes + bass to the shared naming engine so the mic
+  // readout gets the SAME aliasing, key-aware spelling, and dim7 root handling as
+  // the MIDI readout. Returns { name, conf } or null.
   function detectChord() {
     let total = 0;
     for (let i = 0; i < 12; i++) total += chroma[i];
@@ -528,7 +522,7 @@ function createMicInput() {
 
     let best = null, bestScore = 0;
     for (let root = 0; root < 12; root++) {
-      for (const q of QUALITIES) {
+      for (const q of CHORD_Q) {
         let inS = 0;
         for (let k = 0; k < q.ivs.length; k++) {
           inS += c[(root + q.ivs[k]) % 12] * (k === 0 ? 1.15 : 1);
@@ -541,15 +535,25 @@ function createMicInput() {
     let frac = 0;
     for (const iv of best.q.ivs) frac += c[(best.root + iv) % 12];
     if (frac < 0.5) return null;   // too much energy outside the chord tones
-    const rootPcC = (best.root + 9) % 12;               // 0=A -> 0=C (A is pc 9)
-    // NOTE: `name` is spelled in 0=C (via the shared speller); `root`/`pcs`
-    // stay 0=A for the visualizer.
-    return {
-      name: KEY_SPELLING.spell(rootPcC, getEstimatedKey()) + best.q.name,
-      root: best.root,
-      pcs: best.q.ivs.map((iv) => (best.root + iv) % 12),
-      conf: frac,   // fraction of energy on chord tones (~0.5 weak .. 1.0 pure)
-    };
+
+    // Convert the detected chord to a 0=C pitch-class set + bass pc, then name it
+    // through the shared engine. best.root and bassPcA are 0=A; add 9 for 0=C.
+    //
+    // The frame bass (bassPcA) is the lowest strong pitch class in the WHOLE
+    // spectrum - a bass guitar, a kick's rumble, anything down there - so it is
+    // not necessarily one of this chord's tones. Only trust it when it IS a chord
+    // tone; otherwise a non-chord bass would silently degrade the alias ordering
+    // and make the dim7 bass fallback prefer a root that is not in the chord.
+    // Fall back to the detected root.
+    //
+    // NOTE the -1 sentinel MUST be checked before converting: (-1 + 9) % 12 === 8,
+    // a perfectly valid-looking Ab. Converting an unset bass would invent one.
+    const pcSetC = new Set(best.q.ivs.map((iv) => ((best.root + iv) % 12 + 9) % 12));
+    const rootC = (best.root + 9) % 12;
+    const bassCandidate = bassPcA >= 0 ? (bassPcA + 9) % 12 : -1;
+    const bassC = pcSetC.has(bassCandidate) ? bassCandidate : rootC;
+    const name = CHORD.nameFromPitchClasses(pcSetC, bassC, getEstimatedKey());
+    return { name, conf: frac };   // conf = fraction of energy on chord tones
   }
 
   // committed, flicker-free chord name for display (updated each analyse())
@@ -563,6 +567,10 @@ function createMicInput() {
     dsp,
     chordSettings,
     setKeySource,             // host supplies the current estimated key for spelling
+    // test seam: drive detectChord from a synthetic chroma (no live FFT needed)
+    _setChromaForTest: (arr) => { for (let i = 0; i < 12; i++) chroma[i] = arr[i]; },
+    _setBassPcForTest: (pcA) => { bassPcA = pcA; },
+    _detectChordForTest: () => detectChord(),
   };
 }
 
