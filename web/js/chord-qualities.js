@@ -38,7 +38,7 @@ const CHORD_QUALITIES = [
   { name: '7',    ivs: [0, 4, 7, 10], required: [0, 10],      min: 3 },
   { name: 'maj7', ivs: [0, 4, 7, 11], required: [0, 4, 11],   min: 3 },
   { name: 'm7',   ivs: [0, 3, 7, 10], required: [0, 3, 10],   min: 3 },
-  { name: 'ø7',   ivs: [0, 3, 6, 10], required: [0, 3, 6, 10], min: 3 }, // half-diminished
+  { name: 'ø7',   ivs: [0, 3, 6, 10], required: [0, 3, 6, 10], min: 4 }, // half-diminished
   { name: 'dim7', ivs: [0, 3, 6, 9],  required: [0, 3, 6, 9],  min: 4 },
   { name: '6',    ivs: [0, 4, 7, 9],  required: [0, 4, 9],    min: 3 },
   { name: 'm6',   ivs: [0, 3, 7, 9],  required: [0, 3, 9],    min: 3 },
