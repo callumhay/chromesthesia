@@ -54,14 +54,20 @@ function exactMatch(heldSet, root, ivs) {
   return true;
 }
 
-// All exact names for the held pitch-class set (chord aliases), ordered so the
-// preferred interpretation comes first (the bass-rooted one, except for a dim7
-// in a key - see below), then by root ascending.
-// The same notes can name more than one chord (C6 == Am7, symmetric aug/dim7),
-// so this returns every valid (root, quality) match. Empty if not a chord.
-// bassPc: the pitch class of the lowest held note (may be undefined - then no
-// interpretation is preferred and the names come back root-ascending).
-function chordNames(heldSet, bassPc, estimatedKey) {
+// All exact names for the held pitch-class set (chord aliases), with the info a
+// display needs to decide whether the lead name stands alone. Returns:
+//   { names, symmetric, rootConfident }
+//   names         - every valid (root, quality) name, preferred interpretation
+//                   first (see below), then root ascending; [] if not a chord
+//   symmetric     - true when the chord is one whose roots are interval-equal
+//                   (dim7's 4, aug's 3), so the alternatives are true synonyms
+//                   rather than an inversion the bass disambiguates
+//   rootConfident - true when the lead root was chosen for a real reason (the
+//                   bass note, or a dim7's key leading tone) rather than falling
+//                   out of the ascending sort
+// bassPc may be undefined -> no interpretation is preferred (names come back
+// root-ascending, rootConfident false).
+function chordNamesDetailed(heldSet, bassPc, estimatedKey) {
   const matches = [];
   for (let root = 0; root < 12; root++) {
     for (const q of QUALITIES) {
@@ -70,6 +76,8 @@ function chordNames(heldSet, bassPc, estimatedKey) {
       }
     }
   }
+  if (matches.length === 0) return { names: [], symmetric: false, rootConfident: false };
+
   // Which interpretation leads. Normally the bass-rooted one. A dim7 is the
   // exception: it is symmetric, so all four roots are equal by interval math -
   // but musically the diatonic function is the vii°7, rooted on the key's
@@ -79,17 +87,30 @@ function chordNames(heldSet, bassPc, estimatedKey) {
   // otherwise fall back to the bass like every other chord. dim7-only: aug is
   // symmetric too but has no leading-tone function.
   let preferredRoot = bassPc;
+  let rootConfident = bassPc !== undefined && bassPc !== null;
   if (estimatedKey && matches.some((m) => m.quality === 'dim7')) {
     const leadingTone = ((estimatedKey.tonic - 1) % 12 + 12) % 12;
     if (matches.some((m) => m.root === leadingTone && m.quality === 'dim7')) {
       preferredRoot = leadingTone;
+      rootConfident = true;
     }
   }
   matches.sort((a, b) => {
     const ap = a.root === preferredRoot ? -1 : 0, bp = b.root === preferredRoot ? -1 : 0;
     return (ap - bp) || (a.root - b.root);
   });
-  return matches.map((m) => m.name);
+
+  // Symmetric = every alias is the same quality (dim7/dim7/dim7/dim7 or
+  // aug/aug/aug), i.e. rotations of one shape, so the others are synonyms of the
+  // lead. C6/Am7 is NOT symmetric: they are different qualities, a genuine
+  // either-reading the bass settles.
+  const symmetric = matches.length > 1 && matches.every((m) => m.quality === matches[0].quality);
+  return { names: matches.map((m) => m.name), symmetric, rootConfident };
+}
+
+// Just the alias names (preferred first), for callers that only need the list.
+function chordNames(heldSet, bassPc, estimatedKey) {
+  return chordNamesDetailed(heldSet, bassPc, estimatedKey).names;
 }
 
 // Do the held pitch classes exactly form a recognized chord? Spelling is
@@ -170,16 +191,45 @@ function nameFromPitchClasses(pcSet, bassPc, estimatedKey, orderedPcs) {
   return order.map((pc) => KS.spell(pc, estimatedKey)).join(' ');
 }
 
+// Name a pitch-class SET (0 = C) for the split display -> { main, synonyms }.
+//   main     - the string for the top display
+//   synonyms - names for the dimmed sub-display ([] when there are none)
+// A symmetric chord (dim7's 4 roots, aug's 3) with a CONFIDENT root - a real
+// bass, or a dim7's key leading tone - shows that one rooted name as `main` and
+// moves its interval-equal synonyms to `synonyms`. Every other case keeps the
+// single-line behaviour (aliases slash-joined in `main`, `synonyms` empty):
+// non-symmetric aliases like C6/Am7 where the bass picks a genuine reading, and
+// symmetric chords with no root to stand on.
+function displayFromPitchClasses(pcSet, bassPc, estimatedKey, orderedPcs) {
+  if (pcSet.size === 0) return { main: '', synonyms: [] };
+  const { names, symmetric, rootConfident } = chordNamesDetailed(pcSet, bassPc, estimatedKey);
+  if (names.length) {
+    if (symmetric && rootConfident) return { main: names[0], synonyms: names.slice(1) };
+    return { main: names.join(' / '), synonyms: [] };
+  }
+  const order = orderedPcs || [...pcSet].sort((a, b) => a - b);
+  return { main: order.map((pc) => KS.spell(pc, estimatedKey)).join(' '), synonyms: [] };
+}
+
 // The MIDI readout: exact held MIDI notes -> display string.
 function nameFromMidiNotes(midiNotes, estimatedKey) {
   const { set, order } = pitchClasses(midiNotes);
   return nameFromPitchClasses(set, order[0], estimatedKey, order);
 }
 
+// The MIDI split readout: exact held MIDI notes -> { main, synonyms }. The bass
+// is the lowest held note - always present in MIDI, so a symmetric chord always
+// gets its rooted lead in `main` and its synonyms in `synonyms`.
+function displayFromMidiNotes(midiNotes, estimatedKey) {
+  const { set, order } = pitchClasses(midiNotes);
+  return displayFromPitchClasses(set, order[0], estimatedKey, order);
+}
+
 // Thin DOM binding: set the readout text from the current held notes. No
-// hysteresis or fade - it mirrors the held set exactly. When the held notes are
-// note names (not an exact chord) but imply a chord, the implied name is shown
-// smaller/dimmer on impliedEl (if provided).
+// hysteresis or fade - it mirrors the held set exactly. The dimmed sub-display
+// (impliedEl, if provided) shows one of two things, never both at once: the
+// synonyms of a symmetric chord whose root is known (e.g. Cdim7's other three
+// roots), or - when the held notes are not an exact chord - the chord they imply.
 class ChordReadout {
   constructor(nameEl, impliedEl) {
     this.nameEl = nameEl;
@@ -192,26 +242,30 @@ class ChordReadout {
   // estimatedKey: { tonic, mode } or null -> spells names per the estimated key.
   update(midiNotes, estimatedKey) {
     const notes = Array.from(midiNotes);
-    const text = nameFromMidiNotes(notes, estimatedKey);
-    if (text !== this.last) {
-      this.last = text;
-      this.nameEl.innerHTML = KS.readoutHTML(text);
-      this.nameEl.style.opacity = text ? '1' : '0';
+    const { main, synonyms } = displayFromMidiNotes(notes, estimatedKey);
+    if (main !== this.last) {
+      this.last = main;
+      this.nameEl.innerHTML = KS.readoutHTML(main);
+      this.nameEl.style.opacity = main ? '1' : '0';
     }
     if (this.impliedEl) {
-      // only suggest when the main readout is note names (not already a chord)
-      const implied = text.includes(' ') ? (impliedChord(notes, estimatedKey) || '') : '';
-      if (implied !== this.lastImplied) {
-        this.lastImplied = implied;
-        this.impliedEl.innerHTML = KS.accidentalHTML(implied);
-        this.impliedEl.style.opacity = implied ? '1' : '0';
+      // sub-display: the symmetric chord's synonyms if we split one out,
+      // otherwise the implied chord when the main readout is bare note names.
+      const sub = synonyms.length
+        ? synonyms.join(' · ')
+        : (main.includes(' ') ? (impliedChord(notes, estimatedKey) || '') : '');
+      if (sub !== this.lastImplied) {
+        this.lastImplied = sub;
+        this.impliedEl.innerHTML = KS.accidentalHTML(sub);
+        this.impliedEl.style.opacity = sub ? '1' : '0';
       }
     }
   }
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { ChordReadout, nameFromMidiNotes, nameFromPitchClasses, impliedChord };
+  module.exports = { ChordReadout, nameFromMidiNotes, nameFromPitchClasses, impliedChord,
+    displayFromPitchClasses, displayFromMidiNotes, chordNamesDetailed };
 }
 // One namespace object, like key-spelling.js and chord-qualities.js.
 if (typeof window !== 'undefined') {

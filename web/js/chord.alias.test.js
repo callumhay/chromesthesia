@@ -5,7 +5,7 @@
 
 'use strict';
 const assert = require('assert');
-const { nameFromMidiNotes } = require('./chord.js');
+const { nameFromMidiNotes, displayFromMidiNotes, displayFromPitchClasses } = require('./chord.js');
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -63,6 +63,53 @@ test('C7 (single name) has no alias', () => {
 // non-chords still show note names (unchanged)
 test('non-chord still shows note names', () => {
   assert.strictEqual(nameFromMidiNotes([60, 66]), 'C Gb');
+});
+
+// --- MIDI split display: symmetric chord's synonyms move to the sub-display ---
+// The main readout shows the single rooted name; the interval-equal synonyms go
+// to the dimmed sub-display instead of onto a slash-joined line. MIDI always has
+// a bass (the lowest held note), so the root is always confident here.
+
+test('dim7 with bass C, no key -> main "Cdim7", synonyms in sub', () => {
+  const { main, synonyms } = displayFromMidiNotes([60, 63, 66, 69], null); // C Eb Gb A
+  assert.strictEqual(main, 'Cdim7');
+  assert.deepStrictEqual(synonyms, ['Ebdim7', 'Gbdim7', 'Adim7']);
+});
+
+test('dim7 roots on the key leading tone, bass demoted to a synonym', () => {
+  // A minor vii°7 = G# B D F, played with D in the bass. The leading tone G#
+  // leads the main display; the bass-rooted Ddim7 becomes one of the synonyms.
+  const { main, synonyms } = displayFromMidiNotes([62, 65, 68, 71], { tonic: 9, mode: 'minor' });
+  assert.strictEqual(main, 'G#dim7');
+  assert.deepStrictEqual(synonyms, ['Ddim7', 'Fdim7', 'Bdim7']);
+});
+
+test('augmented (also symmetric) splits: main "Caug", two synonyms', () => {
+  const { main, synonyms } = displayFromMidiNotes([60, 64, 68], null); // C E G#
+  assert.strictEqual(main, 'Caug');
+  assert.deepStrictEqual(synonyms, ['Eaug', 'Abaug']);
+});
+
+// --- what must NOT split ---------------------------------------------------
+
+test('non-symmetric alias C6/Am7 stays slash-joined, no synonyms', () => {
+  const { main, synonyms } = displayFromMidiNotes([60, 64, 67, 69], null); // C E G A, bass C
+  assert.strictEqual(main, 'C6 / Am7');
+  assert.deepStrictEqual(synonyms, []);
+});
+
+test('a plain single-name chord has an empty sub-display', () => {
+  const { main, synonyms } = displayFromMidiNotes([60, 64, 67], null);
+  assert.strictEqual(main, 'C');
+  assert.deepStrictEqual(synonyms, []);
+});
+
+test('a symmetric chord with NO confident root keeps the slash line', () => {
+  // No bass (undefined) and no key -> nothing to root on, so fall back to the
+  // slash-joined line rather than pick a lead arbitrarily.
+  const { main, synonyms } = displayFromPitchClasses(new Set([0, 3, 6, 9]), undefined, null);
+  assert.strictEqual(main, 'Cdim7 / Ebdim7 / Gbdim7 / Adim7');
+  assert.deepStrictEqual(synonyms, []);
 });
 
 console.log(`\n${passed} tests passed.`);
