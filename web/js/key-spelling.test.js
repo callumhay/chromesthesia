@@ -259,4 +259,38 @@ test('readoutHTML leaves a short readout unbroken', () => {
   assert.strictEqual(readoutHTML('C6 / Am7'), 'C6 / Am7');
 });
 
+// --- synonymsHTML: the sub-display list wraps by width, only between names -----
+
+const { synonymsHTML } = require('./key-spelling.js');
+
+test('synonymsHTML is empty for no synonyms', () => {
+  assert.strictEqual(synonymsHTML([]), '');
+});
+
+test('synonymsHTML glues each middot to its name in one nowrap unit', () => {
+  const html = synonymsHTML(['Ebdim7', 'Gbdim7', 'Adim7']);
+  // one .syn unit per name - CSS makes these nowrap, so a break can only fall
+  // BETWEEN units (after a middot), never inside a name
+  assert.strictEqual((html.match(/class="syn"/g) || []).length, 3);
+  // the middot lives INSIDE a unit, not in the joining space, so it can never
+  // start a wrapped line
+  assert.ok(/·<\/span>/.test(html), `middot must be inside a unit: ${html}`);
+  assert.ok(!/·\s*<span/.test(html.replace(/·<\/span>/g, '')),
+    'no middot should sit between units');
+  // last name carries no trailing middot
+  assert.ok(/Adim7<\/span>$/.test(html), `last unit must be the bare name: ${html}`);
+});
+
+test('synonymsHTML still styles accidentals inside each unit', () => {
+  const html = synonymsHTML(['Ebdim7', 'Gbdim7']);
+  assert.ok(html.includes('E<span class="acc">b</span>dim7'), html);
+  assert.ok(html.includes('G<span class="acc">b</span>dim7'), html);
+});
+
+test('synonymsHTML of a single synonym is one bare unit, no middot', () => {
+  const html = synonymsHTML(['Ebdim7']);
+  assert.strictEqual((html.match(/class="syn"/g) || []).length, 1);
+  assert.ok(!html.includes('·'), `single synonym needs no separator: ${html}`);
+});
+
 console.log(`\n${passed} passed`);

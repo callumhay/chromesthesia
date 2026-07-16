@@ -124,8 +124,8 @@ function accidentalHTML(text) {
 // wheel. Two typical names still share a line.
 const MAX_READOUT_CHARS = 16;
 
-// Break a chord readout into lines of at most maxChars, splitting only at the
-// " / " between alias names and keeping each slash at the END of its line (so a
+// Break a readout into lines of at most maxChars, splitting only at the " / "
+// between alias names and keeping each slash at the END of its line (so a
 // wrapped line reads as continuing). Names are never split internally, so a
 // single name longer than maxChars stays on its own line. Returns an array of
 // lines; a readout with no aliases comes back as one line.
@@ -151,6 +151,20 @@ function wrapReadoutLines(text, maxChars = MAX_READOUT_CHARS) {
 // broken across lines after the slash.
 function readoutHTML(text, maxChars = MAX_READOUT_CHARS) {
   return wrapReadoutLines(text, maxChars).map(accidentalHTML).join('<br>');
+}
+
+// The sub-display's synonym list as HTML: each "name ·" is one non-breaking unit
+// (the trailing separator glued to its name), so when the line is too wide to fit
+// its container it wraps ONLY between units - never inside a name, and always
+// after the middot. Width, not a character count, decides where it wraps, so it
+// stays one line where there is room and breaks where there is not. `names` is
+// the ordered synonym list; returns '' for an empty list.
+function synonymsHTML(names) {
+  if (!names.length) return '';
+  return names.map((name, i) => {
+    const withSep = i < names.length - 1 ? `${name} ·` : name;
+    return `<span class="syn">${accidentalHTML(withSep)}</span>`;
+  }).join(' ');
 }
 
 // Krumhansl-Schmuckler key profiles (major, minor), rotated so index 0 = tonic.
@@ -231,8 +245,9 @@ function createKeyEstimator() {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { spell, DEFAULT_SPELLING, tableForKey, buildMajorTable, createKeyEstimator,
-    accidentalHTML, wrapReadoutLines, readoutHTML, MAX_READOUT_CHARS };
+    accidentalHTML, wrapReadoutLines, readoutHTML, synonymsHTML, MAX_READOUT_CHARS };
 }
 if (typeof window !== 'undefined') {
-  window.KeySpelling = { spell, DEFAULT_SPELLING, createKeyEstimator, accidentalHTML, readoutHTML };
+  window.KeySpelling = { spell, DEFAULT_SPELLING, createKeyEstimator, accidentalHTML, readoutHTML,
+    synonymsHTML };
 }

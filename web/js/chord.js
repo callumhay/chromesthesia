@@ -251,12 +251,16 @@ class ChordReadout {
     if (this.impliedEl) {
       // sub-display: the symmetric chord's synonyms if we split one out,
       // otherwise the implied chord when the main readout is bare note names.
-      const sub = synonyms.length
-        ? synonyms.join(' · ')
-        : (main.includes(' ') ? (impliedChord(notes, estimatedKey) || '') : '');
+      // Synonyms render as break-after-separator units so a long list wraps by
+      // width; the implied chord is a single name.
+      const implied = synonyms.length ? '' :
+        (main.includes(' ') ? (impliedChord(notes, estimatedKey) || '') : '');
+      const sub = synonyms.length ? synonyms.join(' · ') : implied;
       if (sub !== this.lastImplied) {
         this.lastImplied = sub;
-        this.impliedEl.innerHTML = KS.accidentalHTML(sub);
+        this.impliedEl.innerHTML = synonyms.length
+          ? KS.synonymsHTML(synonyms)
+          : KS.accidentalHTML(implied);
         this.impliedEl.style.opacity = sub ? '1' : '0';
       }
     }
