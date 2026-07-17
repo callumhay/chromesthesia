@@ -33,11 +33,6 @@ jobs:
         uses: actions/checkout@v4
       - name: Setup Pages
         uses: actions/configure-pages@v5
-      # note_colours.json is the colour source of truth and lives at the repo
-      # root, outside the published directory. Copy it in so the app can fetch it
-      # instead of falling back to its embedded copy.
-      - name: Stage the colour source of truth
-        run: cp note_colours.json web/
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

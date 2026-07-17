@@ -1,10 +1,11 @@
 // note-colours.js
 //
 // Single source of truth for note colours is /note_colours.json at the repo
-// root (shared with the Python LED app via NoteUtils.py). This module loads
-// that JSON and exposes the pure mapping from a MIDI note (pitch class +
-// octave + velocity) to the chromesthesia core colour and its cel-shaded
-// octave accent band.
+// root (shared with the Python LED app via NoteUtils.py). It is embedded into
+// this module at build time (see EMBEDDED_NOTE_COLOURS below), so at runtime the
+// mapping is available with no fetch. This module exposes the pure mapping from a
+// MIDI note (pitch class + octave + velocity) to the chromesthesia core colour
+// and its cel-shaded octave accent band.
 //
 // Colour identity comes ONLY from the pitch class (the chromesthesia circle of
 // fifths colour). Octave is expressed as a discrete brightness step on a single
@@ -68,35 +69,12 @@ const EMBEDDED_NOTE_COLOURS = {
 };
 /* END EMBEDDED_NOTE_COLOURS */
 
-// Where note_colours.json sits relative to index.html depends on how the app is
-// served: beside it when web/ is the site root (GitHub Pages, which copies the
-// file in - see .github/workflows), one level up when the repo root is served.
-// Try both rather than pick one and 404 on the other.
-const NOTE_COLOURS_URLS = ['./note_colours.json', '../note_colours.json'];
-
-// Load the shared colour table (the source of truth when served over HTTP),
-// trying each candidate URL in order. Falls back to the embedded copy if none
-// resolve - most commonly on a file:// URL, where browsers deny fetch outright.
-// Returns the loaded colour table.
-async function loadNoteColours(urls = NOTE_COLOURS_URLS) {
-  // './' and '../' resolve to the SAME URL when the page is already at the site
-  // root, so drop duplicates rather than fetch (and log) the same 404 twice.
-  const seen = new Set();
-  for (const url of [].concat(urls)) {
-    const resolved = (typeof URL === 'function' && typeof location !== 'undefined')
-      ? new URL(url, location.href).href : url;
-    if (seen.has(resolved)) continue;
-    seen.add(resolved);
-    try {
-      const res = await fetch(resolved);
-      if (!res.ok) continue;
-      const data = await res.json();
-      setNoteColours(data);
-      return data;
-    } catch (e) {
-      // unreachable/blocked/malformed - try the next candidate
-    }
-  }
+// Load the shared colour table from the embedded copy above. note_colours.json
+// at the repo root is the source of truth, but it is embedded verbatim here at
+// build time (regenerate with `node scripts/embed-note-colours.js`, guarded by
+// note-colours.test.js), so there is no runtime fetch to serve, path to resolve,
+// or file:// case to fall back from. Async only to keep the existing await site.
+async function loadNoteColours() {
   setNoteColours(EMBEDDED_NOTE_COLOURS);
   return EMBEDDED_NOTE_COLOURS;
 }

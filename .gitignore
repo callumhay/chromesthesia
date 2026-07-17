@@ -3,7 +3,3 @@ env
 __pycache__
 *.pyc
 .superpowers
-
-# Staged into web/ at deploy time (see .github/workflows/static.yml); the
-# tracked copy lives at the repo root.
-web/note_colours.json

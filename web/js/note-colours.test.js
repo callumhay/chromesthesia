@@ -87,10 +87,11 @@ test('MIDI octave numbering (A4 = 69, C-1 = 0)', () => {
   assert.strictEqual(NC.midiToOctave(0), -1);
 });
 
-// The embedded fallback (used when fetch is blocked, e.g. file://) must mirror
-// note_colours.json exactly, or a file:// load would show different colours
-// than a served load. This guards the two copies against drift.
-test('embedded fallback matches note_colours.json exactly', () => {
+// The app runs entirely on the embedded copy, so it MUST mirror note_colours.json
+// (the root source of truth) exactly - otherwise the visualizer shows different
+// colours than the file everyone edits. This guards the two against drift; run
+// `node scripts/embed-note-colours.js` after editing the JSON to resync.
+test('embedded copy matches note_colours.json exactly', () => {
   assert.deepStrictEqual(
     NC.EMBEDDED_NOTE_COLOURS.circle_of_fifths, data.circle_of_fifths,
     'circle_of_fifths differs between embedded copy and JSON'

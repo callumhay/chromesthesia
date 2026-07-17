@@ -1,0 +1,32 @@
+# Runs the plain-Node test suite on every push and PR. Its main job is to catch
+# drift between note_colours.json and the copy embedded in note-colours.js (the
+# app now runs entirely on the embedded copy - see note-colours.js), but it runs
+# every web/js/*.test.js, so any failure blocks a bad deploy.
+name: Tests
+
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # No dependencies to install: the tests are plain Node scripts using the
+      # built-in assert module. Run them all; fail the job if any test fails.
+      - name: Run tests
+        run: |
+          fail=0
+          for t in web/js/*.test.js; do
+            echo "--- $t"
+            node "$t" || fail=1
+          done
+          exit $fail
