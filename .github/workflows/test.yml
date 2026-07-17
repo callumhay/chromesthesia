@@ -1,7 +1,8 @@
-# Runs the plain-Node test suite on every push and PR. Its main job is to catch
-# drift between note_colours.json and the copy embedded in note-colours.js (the
-# app now runs entirely on the embedded copy - see note-colours.js), but it runs
-# every web/js/*.test.js, so any failure blocks a bad deploy.
+# Runs the test suite on every push and PR. Both the JS and Python sides guard
+# note_colours.json against drift - the JS tests check the copy embedded in
+# note-colours.js (the web view), the Python test pins the values NoteUtils.py
+# feeds the LEDs - so editing the JSON without resyncing turns the run red on
+# whichever side went stale. Any test failure blocks a bad deploy.
 name: Tests
 
 on:
@@ -20,9 +21,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-      # No dependencies to install: the tests are plain Node scripts using the
+      # No dependencies to install: the JS tests are plain Node scripts using the
       # built-in assert module. Run them all; fail the job if any test fails.
-      - name: Run tests
+      - name: Run JS tests
         run: |
           fail=0
           for t in web/js/*.test.js; do
@@ -30,3 +31,14 @@ jobs:
             node "$t" || fail=1
           done
           exit $fail
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # test_note_utils.py imports only numpy (not the audio/MIDI hardware libs in
+      # requirements.txt), so install just that - faster, and can't fail on a
+      # hardware package that won't build on the runner.
+      - name: Run Python tests
+        run: |
+          pip install numpy
+          python3 -m unittest test_note_utils -v
