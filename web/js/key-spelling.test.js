@@ -158,6 +158,27 @@ test('enough distinct pitch classes DO decide (two triads a fourth apart)', () =
   assert.notStrictEqual(est.estimateKey(), null, 'five distinct pitch classes should decide a key');
 });
 
+// The real regression from the field: after a chromatic run, playing Bmaj7 alone
+// still showed Cbmaj7. Earlier notes had decayed to a small NON-zero residue -
+// enough to clear an absolute "present" floor - so a held 4-note chord counted as
+// 5+ distinct pitch classes and the gate let Eb minor through. "Present" must mean
+// a real SHARE of the current weight, so that few-percent residue drops out.
+test('decayed residue from earlier notes does not inflate the distinct-pc count', () => {
+  const est = createKeyEstimator();
+  let t = 0;
+  // wander through several chords so many pitch classes pick up weight
+  for (const root of [62, 64, 65, 67, 69]) {
+    for (const m of [root, root + 4, root + 7, root + 11]) { est.addNoteOn(m, 0.9); est.decayTo(t += 0.04, 'midi'); }
+  }
+  // now hold only Bmaj7 while everything else decays to residue
+  for (let f = 0; f < 8; f++) {
+    for (const m of [71, 75, 78, 82]) est.addNoteOn(m, 0.9);
+    est.decayTo(t += 0.1, 'midi');
+  }
+  assert.strictEqual(est.estimateKey(), null,
+    'only four notes truly sound - decay residue must not push the count over the gate');
+});
+
 test('a low bass note-on outweighs the same-velocity note an octave up', () => {
   const est = createKeyEstimator();
   est.addNoteOn(36, 0.8);   // low C
