@@ -196,6 +196,14 @@ function createKeyEstimator() {
   let seeded = false;                          // false => decayTo hasn't set the clock yet
   const settings = { halfLifeMidiSec: 2, halfLifeMicSec: 4, confidenceMargin: 0.03 };
   const MIN_TOTAL = 0.5;                        // below this => undecided
+  // A key cannot honestly be told from a single chord: four notes correlate best
+  // with SOME key, and that key then respells the chord that produced it (a fresh
+  // Bmaj7's B/D#/F#/A# reads as Eb minor, which spells B as Cb). Require enough
+  // distinct pitch classes that one chord alone can't decide - a scale fragment
+  // or a couple of chords in a real key easily clears this. Decay-stable (a held
+  // chord keeps its pitch classes) and mode-agnostic (mic fills pcs the same way).
+  const MIN_DISTINCT_PCS = 5;
+  const PC_PRESENT_FLOOR = 0.05;               // weight above which a pc counts as "sounded"
 
   // bass-primary weight: lower MIDI notes count more (linear falloff over the
   // 88-key range), times velocity. One deposit per note-on.
@@ -222,9 +230,13 @@ function createKeyEstimator() {
     }
   }
   function estimateKey() {
-    let total = 0;
-    for (let i = 0; i < 12; i++) total += hist[i];
+    let total = 0, distinctPcs = 0;
+    for (let i = 0; i < 12; i++) {
+      total += hist[i];
+      if (hist[i] > PC_PRESENT_FLOOR) distinctPcs++;
+    }
     if (total < MIN_TOTAL) return null;
+    if (distinctPcs < MIN_DISTINCT_PCS) return null;   // one chord isn't a key
     let best = null, bestScore = -2, second = -2;
     for (let tonic = 0; tonic < 12; tonic++) {
       for (const [mode, prof] of [['major', KS_MAJOR], ['minor', KS_MINOR]]) {

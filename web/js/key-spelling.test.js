@@ -130,6 +130,34 @@ test('a C-major note stream estimates C major', () => {
   assert.deepStrictEqual(key, { tonic: 0, mode: 'major' });
 });
 
+// A single chord's 3-4 notes correlate best with SOME key, but that is not
+// enough evidence to declare one - and if it did, the key would respell the very
+// chord that produced it (a fresh Bmaj7 read as Eb minor spells B as Cb). The key
+// stays undecided until enough distinct pitch classes have sounded.
+test('one freshly-held chord does not establish a key', () => {
+  const est = createKeyEstimator();
+  // Bmaj7 = B D# F# A# - the reported case; alone it correlates with Eb minor.
+  let t = 0;
+  for (const m of [71, 75, 78, 82]) { est.addNoteOn(m, 0.9); est.decayTo(t += 0.03, 'midi'); }
+  assert.strictEqual(est.estimateKey(), null, 'four notes of one chord must not decide a key');
+});
+
+test('a held chord stays undecided even as it sustains (no delayed flip)', () => {
+  const est = createKeyEstimator();
+  let t = 0;
+  for (const m of [71, 75, 78, 82]) { est.addNoteOn(m, 0.9); est.decayTo(t += 0.03, 'midi'); }
+  for (let i = 0; i < 20; i++) est.decayTo(t += 0.1, 'midi');   // hold ~2s
+  assert.strictEqual(est.estimateKey(), null, 'holding one chord must never resolve a key');
+});
+
+test('enough distinct pitch classes DO decide (two triads a fourth apart)', () => {
+  const est = createKeyEstimator();
+  let t = 0;
+  for (const m of [60, 64, 67, 65, 69, 72]) { est.addNoteOn(m, 0.9); est.decayTo(t += 0.05, 'midi'); }
+  // C major + F major triads = C E G F A -> 5 distinct pcs, clears the gate
+  assert.notStrictEqual(est.estimateKey(), null, 'five distinct pitch classes should decide a key');
+});
+
 test('a low bass note-on outweighs the same-velocity note an octave up', () => {
   const est = createKeyEstimator();
   est.addNoteOn(36, 0.8);   // low C
