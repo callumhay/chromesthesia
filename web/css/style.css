@@ -127,6 +127,26 @@ button:active { transform: translateY(1px); }
 .modebtn:hover { background: rgba(70,255,200,0.08); }
 .modebtn.active { background: var(--phos); color: #03110c; }
 
+/* audio input picker (mic mode only) - matches the status chip's CRT chrome. A
+   custom caret replaces the native one so the whole control reads as phosphor. */
+.micsource {
+  appearance: none; -webkit-appearance: none;
+  font: inherit; font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+  color: var(--phos); background: rgba(70,255,200,0.06);
+  border: 1px solid var(--phos-dim);
+  padding: 6px 26px 6px 12px; max-width: 220px;
+  cursor: pointer; white-space: nowrap; text-overflow: ellipsis;
+  /* phosphor caret drawn as an inline SVG data URI, tinted to --phos */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2346ffc8' stroke-width='1.4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center;
+}
+.micsource:hover { background-color: rgba(70,255,200,0.12); }
+.micsource:focus { outline: none; border-color: var(--phos); }
+/* the popped-open option list can't inherit the CRT font on every browser, but
+   set what we can so it is at least dark-on-phosphor rather than system-white */
+.micsource option { background: var(--panel); color: var(--phos); text-transform: none; }
+.micsource[hidden] { display: none; }
+
 /* debug panel (bottom-left), styled after waveloop's dsp deck with brackets */
 .panel {
   position: fixed; bottom: 16px; left: 18px; z-index: 9;

@@ -192,6 +192,52 @@
   // --- mode switch (MIDI / Mic) --------------------------------------------
   const midiBtn = document.getElementById('modeMidiBtn');
   const micBtn = document.getElementById('modeMicBtn');
+  const micSourceEl = document.getElementById('micSource');
+  let micDeviceId = null;   // chosen audio input; null = system default
+
+  // Audio inputs the browser sees. Labels are blank until mic permission is
+  // granted, but the COUNT is available before, which is enough to decide
+  // whether mic input is possible at all.
+  async function audioInputs() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return [];
+    try {
+      return (await navigator.mediaDevices.enumerateDevices())
+        .filter((d) => d.kind === 'audioinput');
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Hide the Mic button entirely when there are no audio inputs - mic mode is
+  // impossible, so the choice should not exist. Bail to MIDI if we are somehow
+  // in mic mode when the last input disappears.
+  async function refreshMicAvailability() {
+    const inputs = await audioInputs();
+    micBtn.hidden = inputs.length === 0;
+    if (inputs.length === 0 && mode === 'mic') setMode('midi');
+  }
+
+  // Populate + show the input picker. Only meaningful in mic mode, and only when
+  // there is genuinely more than one input to choose between: macOS lists a
+  // "Default" alias alongside the physical device, so count DISTINCT hardware
+  // groups (groupId), not raw entries, or a single mic would show a picker of
+  // duplicates. Call after mic.enable() so device labels are populated.
+  async function refreshMicSourcePicker() {
+    const inputs = await audioInputs();
+    const groups = new Set(inputs.map((d) => d.groupId || d.deviceId));
+    if (mode !== 'mic' || groups.size <= 1) { micSourceEl.hidden = true; return; }
+
+    const liveId = mic.currentDeviceId();
+    micSourceEl.innerHTML = '';
+    inputs.forEach((d, i) => {
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.textContent = d.label || `Input ${i + 1}`;
+      if (d.deviceId === liveId) opt.selected = true;
+      micSourceEl.appendChild(opt);
+    });
+    micSourceEl.hidden = false;
+  }
 
   async function setMode(next) {
     if (next === mode) return;
@@ -209,14 +255,16 @@
       keys.disable();
       setStatus('starting mic…', false);
       try {
-        await mic.enable();
+        await mic.enable(micDeviceId);
         setStatus('mic', true);
+        refreshMicSourcePicker();   // labels are available now that permission is granted
       } catch (e) {
         setStatus('mic denied', false);
         setMode('midi');   // fall back
       }
     } else {
       mic.disable();
+      micSourceEl.hidden = true;
       keys.enable();
       // release any held notes so they don't hang across the switch
       for (const m of [...notes.keys()]) noteOff(m);
@@ -225,6 +273,32 @@
   }
   midiBtn.addEventListener('click', () => setMode('midi'));
   micBtn.addEventListener('click', () => setMode('mic'));
+
+  // switch the live input to the chosen device (re-acquires the stream)
+  micSourceEl.addEventListener('change', async () => {
+    micDeviceId = micSourceEl.value || null;
+    if (mode !== 'mic') return;
+    setStatus('switching input…', false);
+    try {
+      mic.disable();
+      await mic.enable(micDeviceId);
+      setStatus('mic', true);
+      refreshMicSourcePicker();
+    } catch (e) {
+      setStatus('mic error', false);
+      setMode('midi');
+    }
+  });
+
+  // devices plugged in / removed (e.g. installing a loopback device) re-evaluate
+  // both the Mic button and the picker
+  if (navigator.mediaDevices) {
+    navigator.mediaDevices.addEventListener('devicechange', () => {
+      refreshMicAvailability();
+      refreshMicSourcePicker();
+    });
+  }
+  refreshMicAvailability();
   setStatus(midiStatus.text, midiStatus.connected);
 
   // --- debug panel ---------------------------------------------------------

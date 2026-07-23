@@ -433,14 +433,24 @@ function createMicInput() {
 
   // getUserMedia + build the dual-resolution analysers (ports enableMic +
   // makeAnalysers). Echo cancellation / noise suppression / AGC are all off so
-  // the DSP stack sees the raw spectrum.
-  async function enable() {
-    micStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-    });
+  // the DSP stack sees the raw spectrum. deviceId (optional) selects a specific
+  // audio input (e.g. a loopback device); omitted -> the system default.
+  async function enable(deviceId) {
+    const audio = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+    if (deviceId) audio.deviceId = { exact: deviceId };
+    micStream = await navigator.mediaDevices.getUserMedia({ audio });
     micCtx = new (window.AudioContext || window.webkitAudioContext)();
     micAna = makeAnalysers(micCtx, micCtx.createMediaStreamSource(micStream));
     stabilizer.reset(); lastStableName = '';
+  }
+
+  // The deviceId of the currently-live input, or '' if none / system default.
+  // Reads it off the active track so it reflects what the browser actually gave
+  // us, which may differ from what was requested.
+  function currentDeviceId() {
+    if (!micStream) return '';
+    const track = micStream.getAudioTracks()[0];
+    return track ? (track.getSettings().deviceId || '') : '';
   }
 
   // stop the stream, close the context, and clear references (ports disableMic;
@@ -555,6 +565,7 @@ function createMicInput() {
   return {
     enable,
     disable,
+    currentDeviceId,          // deviceId of the live input ('' = default/none)
     analyse,
     estimateStableChordName,  // stabilized name for the readout
     dsp,

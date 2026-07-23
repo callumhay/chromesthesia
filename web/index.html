@@ -27,6 +27,8 @@
     <button id="modeMidiBtn" class="modebtn active">MIDI</button>
     <button id="modeMicBtn" class="modebtn">Mic</button>
   </span>
+  <!-- audio input picker: shown only in mic mode, and only when >1 input exists -->
+  <select id="micSource" class="micsource" hidden aria-label="Audio input source"></select>
   <span class="chip" id="statusChip"><span class="led"></span><span id="statusText">no midi</span></span>
 </header>
 
